@@ -10,7 +10,7 @@ import { db } from "./src/db/index.ts";
 import { users, habits, habitLogs, routines, routineLogs } from "./src/db/schema.ts";
 import { eq, and } from "drizzle-orm";
 
-const PORT = 3000;
+const PORT = process.env.PORT || 3000;
 const JWT_SECRET = process.env.JWT_SECRET || "mountain-summit-secret-token";
 
 // Authentication Middleware
