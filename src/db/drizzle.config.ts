@@ -18,24 +18,32 @@ const sqliteConfig = defineConfig({
   verbose: true,
 });
 
-const sqlHost = process.env.SQL_HOST;
-const sqlDbName = process.env.SQL_DB_NAME;
-const user = process.env.SQL_ADMIN_USER;
-const password = process.env.SQL_ADMIN_PASSWORD;
-
-const postgresConfig = defineConfig({
-  schema: "./src/db/schema.pg.ts",
-  out: "./drizzle",
-  dialect: "postgresql",
-  schemaFilter: ["public"],
-  dbCredentials: {
-    host: sqlHost!,
-    user: user!,
-    password: password!,
-    database: sqlDbName!,
-    ssl: false,
-  },
-  verbose: true,
-});
+const postgresConfig = process.env.DATABASE_URL
+  ? defineConfig({
+      schema: "./src/db/schema.pg.ts",
+      out: "./drizzle",
+      dialect: "postgresql",
+      schemaFilter: ["public"],
+      dbCredentials: {
+        url: process.env.DATABASE_URL,
+      },
+      verbose: true,
+    })
+  : defineConfig({
+      schema: "./src/db/schema.pg.ts",
+      out: "./drizzle",
+      dialect: "postgresql",
+      schemaFilter: ["public"],
+      dbCredentials: {
+        host: process.env.SQL_HOST!,
+        user: process.env.SQL_ADMIN_USER!,
+        password: process.env.SQL_ADMIN_PASSWORD!,
+        database: process.env.SQL_DB_NAME!,
+        ssl: process.env.SQL_HOST?.includes("supabase")
+          ? { rejectUnauthorized: false }
+          : false,
+      },
+      verbose: true,
+    });
 
 export default usePostgres ? postgresConfig : sqliteConfig;

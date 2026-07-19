@@ -9,7 +9,10 @@ import { db } from "../db/index.ts";
 import { users, habits, habitLogs, routines, routineLogs } from "../db/schema.ts";
 import { eq, and } from "drizzle-orm";
 
-const JWT_SECRET = process.env.JWT_SECRET || "mountain-summit-secret-token";
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET) {
+  throw new Error("JWT_SECRET environment variable is required but not set.");
+}
 
 // Authentication Middleware
 interface AuthRequest extends express.Request {
@@ -42,7 +45,15 @@ export function createApp() {
 
   // Logging Middleware
   app.use((req, res, next) => {
-    const logLine = `[${new Date().toISOString()}] ${req.method} ${req.url} - Headers: ${JSON.stringify(req.headers)} - Body: ${JSON.stringify(req.body)}\n`;
+    // Redact sensitive fields before logging
+    const safeHeaders = { ...req.headers };
+    delete safeHeaders.authorization;
+    delete safeHeaders.cookie;
+
+    const safeBody = { ...req.body };
+    if (safeBody.password) safeBody.password = "[REDACTED]";
+
+    const logLine = `[${new Date().toISOString()}] ${req.method} ${req.url} - Headers: ${JSON.stringify(safeHeaders)} - Body: ${JSON.stringify(safeBody)}\n`;
     try {
       fs.appendFileSync(path.join(process.cwd(), "server_requests.log"), logLine, "utf-8");
     } catch (e) {
@@ -376,7 +387,7 @@ export function createApp() {
         type: type || "Count",
         target,
         unit: unit || "reps",
-        repeatOn: repeat || "Daily",
+        repeat: repeat || "Daily",
         repeatDays,
         timeOfDay,
         timeBlock,
