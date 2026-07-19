@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import AuthPage from './components/AuthPage';
 import { CreateHabitModal, CreateRoutineModal } from './components/Modals';
-import { Habit, Category, Routine } from './types';
+import { Habit, Category, Routine, PillarGoal, NutritionTargets } from './types';
 import { getInitialState, calculateMomentum, dateToday, dateYesterday } from './data';
 import { api } from './api';
 import { 
@@ -13,7 +13,6 @@ import {
   Flame,
   Zap,
   Bell,
-  Apple as AppleIcon
 } from 'lucide-react';
 
 import HomeScreen from './components/HomeScreen';
@@ -21,7 +20,10 @@ import TodayScreen from './components/TodayScreen';
 import ProgressScreen from './components/ProgressScreen';
 import ProfileScreen from './components/ProfileScreen';
 import CreateModal from './components/CreateModal';
-import DietScreen, { LoggedFood } from './components/DietScreen';
+// NOTE: DietScreen is no longer rendered as its own tab (see fix #4) — the diet
+// experience now lives inline on HomeScreen as the "Diet Log" card. We keep the
+// LoggedFood type + LogFoodModal import since logging food is still needed.
+import type { LoggedFood } from './components/DietScreen';
 import LogFoodModal from './components/LogFoodModal';
 
 export default function App() {
@@ -35,13 +37,7 @@ export default function App() {
   const [appLoading, setAppLoading] = useState<boolean>(true);
 
   // Nutrition goals state
-  const [nutritionTargets, setNutritionTargets] = useState<{
-    protein: number;
-    carbs: number;
-    fats: number;
-    fiber: number;
-    calories: number;
-  }>(() => {
+  const [nutritionTargets, setNutritionTargets] = useState<NutritionTargets>(() => {
     const cached = localStorage.getItem('90day_nutrition_targets');
     if (cached) {
       try {
@@ -69,27 +65,22 @@ export default function App() {
         console.error(e);
       }
     }
-    // Default initial mock foods sum exactly to protein 82, carbs 160, fats 50, fiber 18, calories 1880
-    return [
-      { id: 'init-1', name: 'Eggs (3x) & Avocado Toast', protein: 26, carbs: 45, fats: 22, fiber: 8, calories: 580, timestamp: '08:30 AM', date: dateYesterday },
-      { id: 'init-2', name: 'Grilled Chicken Breast & Rice Bowl', protein: 56, carbs: 115, fats: 28, fiber: 10, calories: 1300, timestamp: '01:15 PM', date: dateYesterday },
-    ];
+    return [];
   });
 
   // Dynamically derive nutritionToday based on loggedFoods FOR TODAY ONLY
-  const nutritionToday = loggedFoods
-    .filter(item => !item.date || item.date === dateToday)
-    .reduce(
-      (acc, item) => {
-        acc.protein += item.protein;
-        acc.carbs += item.carbs;
-        acc.fats += item.fats;
-        acc.fiber += item.fiber;
-        acc.calories += item.calories;
-        return acc;
-      },
-      { protein: 0, carbs: 0, fats: 0, fiber: 0, calories: 0 }
-    );
+  const todaysFoodLog = loggedFoods.filter(item => !item.date || item.date === dateToday);
+  const nutritionToday = todaysFoodLog.reduce(
+    (acc, item) => {
+      acc.protein += item.protein;
+      acc.carbs += item.carbs;
+      acc.fats += item.fats;
+      acc.fiber += item.fiber;
+      acc.calories += item.calories;
+      return acc;
+    },
+    { protein: 0, carbs: 0, fats: 0, fiber: 0, calories: 0 }
+  );
 
   const handleAddFood = (food: Omit<LoggedFood, 'id' | 'timestamp'>) => {
     const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -116,20 +107,12 @@ export default function App() {
     });
   };
 
-  const handleUpdateNutritionTargets = (targets: { protein: number; carbs: number; fats: number; fiber: number; calories: number }) => {
+  const handleUpdateNutritionTargets = (targets: NutritionTargets) => {
     setNutritionTargets(targets);
     localStorage.setItem('90day_nutrition_targets', JSON.stringify(targets));
   };
 
-  const handleClearLogs = () => {
-    setLoggedFoods(prev => {
-      const next = prev.filter(f => f.date && f.date !== dateToday);
-      localStorage.setItem('90day_logged_foods', JSON.stringify(next));
-      return next;
-    });
-  };
-
-  // Backwards-compatible handleAddNutrition
+  // Backwards-compatible handleAddNutrition (used by CreateModal's quick-add flow)
   const handleAddNutrition = (macros: { protein: number; carbs: number; fats: number; fiber: number; calories: number }) => {
     handleAddFood({
       name: 'Custom Logged Meal',
@@ -162,14 +145,35 @@ export default function App() {
     }
   };
 
-  const [customGoals, setCustomGoals] = useState<Array<{ title: string; desc: string }>>([
-    { title: 'Fitness Goals', desc: 'Workout, lift, and maintain physical activity.' },
-    { title: 'Diet & Nutrition', desc: 'Protein target 120g+, 3L water daily.' },
-    { title: 'Study & Career', desc: 'Technical reading, coding, and focus blocks.' },
-  ]);
+  const [customGoals, setCustomGoals] = useState<PillarGoal[]>(() => {
+    const cached = localStorage.getItem('90day_pillar_goals');
+    if (cached) {
+      try {
+        return JSON.parse(cached);
+      } catch (e) {
+        console.error(e);
+      }
+    }
+    return [
+      { id: 'goal-fitness-base', title: 'Train 5 days a week', pillar: 'Fitness', desc: 'Strength and conditioning stay visible every week.', target: '5 sessions/week', createdAt: dateToday },
+      { id: 'goal-nutrition-base', title: 'Hit protein and calories', pillar: 'Nutrition', desc: 'Diet targets guide each food log.', target: '150g protein daily', createdAt: dateToday },
+      { id: 'goal-career-base', title: 'Daily skill block', pillar: 'Career', desc: 'Protect one serious study or build block.', target: '90 focused minutes', createdAt: dateToday },
+    ];
+  });
 
-  const handleAddCustomGoal = (goal: { title: string; desc: string }) => {
-    setCustomGoals(prev => [...prev, goal]);
+  const handleAddCustomGoal = (goal: Omit<PillarGoal, 'id' | 'createdAt'>) => {
+    setCustomGoals(prev => {
+      const next = [
+        ...prev,
+        {
+          ...goal,
+          id: Math.random().toString(36).substring(2, 9),
+          createdAt: dateToday,
+        },
+      ];
+      localStorage.setItem('90day_pillar_goals', JSON.stringify(next));
+      return next;
+    });
   };
 
   // States for routine timeline details
@@ -190,22 +194,18 @@ export default function App() {
     }
     setAppLoading(true);
     try {
-      // 1. Fetch profiles
       const profile = await api.getProfile();
       setCurrentUser(profile);
       setUserPoints(profile.total_points || 0);
 
-      // 2. Fetch habits
       const hData = await api.getHabits();
       setHabits(hData);
 
-      // 3. Fetch routines
       const rData = await api.getRoutines();
       setRoutines(rData);
 
     } catch (err: any) {
       console.error('Error loading full-stack assets:', err);
-      // If unauthorized token or user profile/session not found, force session clear
       if (err.message && (
         err.message.includes('401') || 
         err.message.includes('403') || 
@@ -226,7 +226,6 @@ export default function App() {
     loadAllData();
   }, [token]);
 
-  // Auth helper success callback
   const handleAuthSuccess = (newToken: string, user: any) => {
     localStorage.setItem('habit_mountain_token', newToken);
     setToken(newToken);
@@ -234,7 +233,6 @@ export default function App() {
     setUserPoints(user.total_points || 0);
   };
 
-  // Sign out handle
   const handleLogout = () => {
     localStorage.removeItem('habit_mountain_token');
     setToken(null);
@@ -252,14 +250,10 @@ export default function App() {
     let routinesToUpdate: { id: string; completed: boolean }[] = [];
 
     routines.forEach((rt) => {
-      // Find all habits associated with this routine
       const routineHabits = habits.filter((h) => rt.habitIds.includes(h.id));
-      
-      // Calculate if they were all fully completed today
       const allDoneToday =
         routineHabits.length > 0 &&
         routineHabits.every((h) => (h.history[dateToday] || 0) >= h.target);
-      
       const wasDoneEarlierToday = rt.completedHistory[dateToday] || false;
 
       if (allDoneToday && !wasDoneEarlierToday) {
@@ -269,25 +263,19 @@ export default function App() {
     });
 
     if (routinesToUpdate.length > 0) {
-      // Execute database syncs for routine completion status
       const syncRoutinesCompletions = async () => {
         try {
           const nextPoints = userPoints + pointsBonus;
           setUserPoints(nextPoints);
-
-          // Update user points in database
           await api.syncJourney({ total_points: nextPoints });
 
-          // Update routine logger rows
           for (const item of routinesToUpdate) {
             await api.setRoutineStatus(item.id, dateToday, true);
           }
 
-          // Reload fresh data to keep structures integrated perfectly
           const updatedRoutines = await api.getRoutines();
           setRoutines(updatedRoutines);
 
-          // Trigger clean congrats banner feedback
           setTimeout(() => {
             alert(`⚡ SUMMIT CHAIN MASTERED!\nYou completed all tasks for routine and gained +${pointsBonus} bonus points!`);
           }, 100);
@@ -317,17 +305,14 @@ export default function App() {
       let ptsAdd = 0;
       if (!isRoutineHabit) {
         if (nowCompleted && !wasCompleted) {
-          // Double completions bonus!
           ptsAdd = targetHabit.points + 5;
         } else if (!nowCompleted) {
-          // Simple increment points addition
           ptsAdd = Math.min(targetHabit.points, 2);
         }
       }
 
       const nextPoints = userPoints + ptsAdd;
       
-      // Sync to database
       await api.logHabit(id, dateToday, value);
       
       if (ptsAdd > 0) {
@@ -335,7 +320,6 @@ export default function App() {
         setUserPoints(nextPoints);
       }
 
-      // Re-fetch all dynamic logs cleanly
       const updatedHabits = await api.getHabits();
       setHabits(updatedHabits);
 
@@ -376,11 +360,9 @@ export default function App() {
 
       await api.createHabit(payload);
       
-      // Reload lists
       const nextHabits = await api.getHabits();
       setHabits(nextHabits);
 
-      // If linked to routine, update local arrays representation too
       if (habitData.routineId) {
         const nextRoutines = await api.getRoutines();
         setRoutines(nextRoutines);
@@ -405,7 +387,6 @@ export default function App() {
     try {
       const generatedHabitIds: string[] = [];
 
-      // Create each listed habit sequentially in backend SQLite DB
       for (let i = 0; i < rtData.habitNames.length; i++) {
         const name = rtData.habitNames[i];
         const hRes = await api.createHabit({
@@ -420,7 +401,6 @@ export default function App() {
         generatedHabitIds.push(hRes.id);
       }
 
-      // Create Routine representing the linked chain
       await api.createRoutine({
         name: rtData.name,
         points: rtData.points,
@@ -429,7 +409,6 @@ export default function App() {
         habitIds: generatedHabitIds
       });
 
-      // Reload fresh database structures
       const nextHabits = await api.getHabits();
       const nextRoutines = await api.getRoutines();
       setHabits(nextHabits);
@@ -442,7 +421,6 @@ export default function App() {
     }
   };
 
-  // Navigate straight to routine
   const handleNavigateToRoutine = (routineId: string) => {
     setSelectedRoutineId(routineId);
     setTab('habits');
@@ -473,13 +451,10 @@ export default function App() {
     }
   };
 
-  // Handler: Delete habit permanently
   const handleDeleteHabit = async (id: string) => {
     if (confirm('Are you sure you want to delete this habit permanently from your dashboard and routines?')) {
       try {
         await api.deleteHabit(id);
-        
-        // Reload habits and routines
         const nextHabits = await api.getHabits();
         setHabits(nextHabits);
         const nextRoutines = await api.getRoutines();
@@ -490,14 +465,13 @@ export default function App() {
     }
   };
 
-  // Reset database state completely
   const handleResetApp = async () => {
     if (confirm('Are you sure you want to reset all tracked points and database logs to start fresh? This drops your sqlite metrics safely.')) {
       setAppLoading(true);
       try {
         await api.resetAllData();
         await loadAllData();
-        setTab('dashboard');
+        setTab('home');
         alert('All database tables successfully wiped & re-seeded to baseline values!');
       } catch (err: any) {
         alert('Failure processing reset: ' + err.message);
@@ -507,12 +481,10 @@ export default function App() {
     }
   };
 
-  // Render Login/Register Overlay if not authenticated
   if (!token) {
     return <AuthPage onAuthSuccess={handleAuthSuccess} />;
   }
 
-  // Loading buffer
   if (appLoading) {
     return (
       <div className="flex flex-col font-sans items-center justify-center min-h-screen bg-[#06070a] text-white">
@@ -527,8 +499,15 @@ export default function App() {
     );
   }
 
-  // Compute momentum live score
   const { score: currentLiveMomentumScore } = calculateMomentum(habits);
+
+  // FIX #4: Diet is no longer a standalone tab — only 4 primary sections now.
+  const navItems = [
+    { id: 'home', label: 'Dashboard', icon: HomeIcon },
+    { id: 'today', label: "Today's Focus", icon: CalendarIcon },
+    { id: 'progress', label: 'Progress Logs', icon: BarChartIcon },
+    { id: 'profile', label: 'Profile Settings', icon: UserIcon },
+  ];
 
   return (
     <div className="min-h-screen bg-[#F8F9FC] text-[#1E293B] flex flex-col md:flex-row font-sans">
@@ -546,65 +525,20 @@ export default function App() {
         </div>
 
         <nav className="flex-1 space-y-2">
-          <button
-            onClick={() => setTab('home')}
-            className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer ${
-              currentTab === 'home' 
-                ? 'bg-[#12B886] text-white shadow-lg shadow-emerald-500/20' 
-                : 'text-slate-400 hover:text-white hover:bg-slate-800/50'
-            }`}
-          >
-            <HomeIcon className="w-4.5 h-4.5 stroke-[2.5px]" />
-            <span>Dashboard</span>
-          </button>
-
-          <button
-            onClick={() => setTab('today')}
-            className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer ${
-              currentTab === 'today' 
-                ? 'bg-[#12B886] text-white shadow-lg shadow-emerald-500/20' 
-                : 'text-slate-400 hover:text-white hover:bg-slate-800/50'
-            }`}
-          >
-            <CalendarIcon className="w-4.5 h-4.5 stroke-[2.5px]" />
-            <span>Today's Focus</span>
-          </button>
-
-          <button
-            onClick={() => setTab('progress')}
-            className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer ${
-              currentTab === 'progress' 
-                ? 'bg-[#12B886] text-white shadow-lg shadow-emerald-500/20' 
-                : 'text-slate-400 hover:text-white hover:bg-slate-800/50'
-            }`}
-          >
-            <BarChartIcon className="w-4.5 h-4.5 stroke-[2.5px]" />
-            <span>Progress Logs</span>
-          </button>
-
-          <button
-            onClick={() => setTab('diet')}
-            className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer ${
-              currentTab === 'diet' 
-                ? 'bg-[#12B886] text-white shadow-lg shadow-emerald-500/20' 
-                : 'text-slate-400 hover:text-white hover:bg-slate-800/50'
-            }`}
-          >
-            <AppleIcon className="w-4.5 h-4.5 stroke-[2.5px]" />
-            <span>Diet Tracker</span>
-          </button>
-
-          <button
-            onClick={() => setTab('profile')}
-            className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer ${
-              currentTab === 'profile' 
-                ? 'bg-[#12B886] text-white shadow-lg shadow-emerald-500/20' 
-                : 'text-slate-400 hover:text-white hover:bg-slate-800/50'
-            }`}
-          >
-            <UserIcon className="w-4.5 h-4.5 stroke-[2.5px]" />
-            <span>Profile Settings</span>
-          </button>
+          {navItems.map(({ id, label, icon: Icon }) => (
+            <button
+              key={id}
+              onClick={() => setTab(id)}
+              className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer ${
+                currentTab === id 
+                  ? 'bg-[#12B886] text-white shadow-lg shadow-emerald-500/20' 
+                  : 'text-slate-400 hover:text-white hover:bg-slate-800/50'
+              }`}
+            >
+              <Icon className="w-4.5 h-4.5 stroke-[2.5px]" />
+              <span>{label}</span>
+            </button>
+          ))}
         </nav>
 
         {/* Desktop Quick Add Button at bottom of Sidebar */}
@@ -622,7 +556,6 @@ export default function App() {
       {/* MAIN VIEWPORT: Scrollable content container */}
       <div className="flex-1 flex flex-col min-h-screen bg-[#F8F9FC] relative">
         
-        {/* Main Screen Render Area */}
         <main className="flex-1 overflow-y-auto pb-24 md:pb-8">
           <div className="w-full max-w-6xl mx-auto py-2 md:py-6">
             {currentTab === 'home' && (
@@ -637,13 +570,21 @@ export default function App() {
                 currentUser={currentUser}
                 nutritionToday={nutritionToday}
                 nutritionTargets={nutritionTargets}
+                todaysFoodLog={todaysFoodLog}
+                onRemoveFood={handleRemoveFood}
                 onOpenLogFood={() => setIsLogFoodModalOpen(true)}
                 onOpenCreateModal={() => setIsPlusModalOpen(true)}
                 onRefresh={handleRefreshData}
+                pillarGoals={customGoals}
               />
             )}
 
             {currentTab === 'today' && (
+              // TODO (fix #3 — by-pillar section): TodayScreen.tsx wasn't provided,
+              // so its "By Pillar" grouping couldn't be updated to group habits AND
+              // routines under each pillar. Paste TodayScreen.tsx and I'll wire it
+              // up the same way HomeScreen's Pillars Overview now works (see
+              // getPillarStats/getRoutineCategory in HomeScreen.tsx for the pattern).
               <TodayScreen
                 habits={habits}
                 routines={routines}
@@ -654,6 +595,7 @@ export default function App() {
                 nutritionToday={nutritionToday}
                 nutritionTargets={nutritionTargets}
                 onRefresh={handleRefreshData}
+                pillarGoals={customGoals}
               />
             )}
 
@@ -663,19 +605,6 @@ export default function App() {
                 routines={routines}
                 dateToday={dateToday}
                 currentUser={currentUser}
-              />
-            )}
-
-            {currentTab === 'diet' && (
-              <DietScreen
-                nutritionToday={nutritionToday}
-                nutritionTargets={nutritionTargets}
-                loggedFoods={loggedFoods.filter(item => !item.date || item.date === dateToday)}
-                onAddFood={handleAddFood}
-                onRemoveFood={handleRemoveFood}
-                onUpdateTargets={handleUpdateNutritionTargets}
-                onClearLogs={handleClearLogs}
-                onBack={() => setTab('home')}
               />
             )}
 
@@ -725,16 +654,6 @@ export default function App() {
           </div>
 
           <button
-            onClick={() => setTab('diet')}
-            className={`flex flex-col items-center justify-center flex-1 py-1 transition cursor-pointer ${
-              currentTab === 'diet' ? 'text-[#12B886] scale-105' : 'text-gray-400 hover:text-gray-600'
-            }`}
-          >
-            <AppleIcon className="w-5 h-5 stroke-[2.5px]" />
-            <span className="text-[9px] font-black mt-1 uppercase tracking-wider">Diet</span>
-          </button>
-
-          <button
             onClick={() => setTab('progress')}
             className={`flex flex-col items-center justify-center flex-1 py-1 transition cursor-pointer ${
               currentTab === 'progress' ? 'text-[#12B886] scale-105' : 'text-gray-400 hover:text-gray-600'
@@ -757,7 +676,12 @@ export default function App() {
 
       </div>
 
-      {/* Global Action Modal Sheet */}
+      {/* Global Action Modal Sheet
+          TODO (fix #5): CreateModal.tsx wasn't provided, so I couldn't edit what's
+          inside the "+" sheet itself. The props below already give it everything
+          it needs (habit creation, routine creation, food logging, points, custom
+          goals) — paste CreateModal.tsx and I'll make sure each option routes to
+          the right flow with the right pre-filled fields. */}
       <CreateModal
         isOpen={isPlusModalOpen}
         onClose={() => setIsPlusModalOpen(false)}
@@ -766,6 +690,8 @@ export default function App() {
         onAddNutrition={handleAddNutrition}
         onAddPoints={handleAddPoints}
         onAddCustomGoal={handleAddCustomGoal}
+        nutritionTargets={nutritionTargets}
+        onUpdateNutritionTargets={handleUpdateNutritionTargets}
         onOpenLogFood={() => setIsLogFoodModalOpen(true)}
       />
 
@@ -776,7 +702,6 @@ export default function App() {
         loggedFoodsHistory={loggedFoods}
       />
 
-      {/* Global Control Modals (Fallback support) */}
       <CreateHabitModal
         isOpen={isHabitModalOpen}
         onClose={() => setIsHabitModalOpen(false)}

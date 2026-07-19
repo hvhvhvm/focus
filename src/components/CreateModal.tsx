@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { 
   X, 
   CheckSquare, 
@@ -11,7 +11,7 @@ import {
   Flame,
   Plus
 } from 'lucide-react';
-import { Category } from '../types';
+import { Category, NutritionTargets, PillarGoal } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
 
 interface CreateModalProps {
@@ -21,7 +21,9 @@ interface CreateModalProps {
   openCreateRoutine: () => void;
   onAddNutrition: (macros: { protein: number; carbs: number; fats: number; fiber: number; calories: number }) => void;
   onAddPoints: (points: number) => void;
-  onAddCustomGoal?: (goal: { title: string; desc: string }) => void;
+  onAddCustomGoal?: (goal: Omit<PillarGoal, 'id' | 'createdAt'>) => void;
+  nutritionTargets: NutritionTargets;
+  onUpdateNutritionTargets: (targets: NutritionTargets) => void;
   onOpenLogFood: () => void;
 }
 
@@ -33,9 +35,11 @@ export default function CreateModal({
   onAddNutrition,
   onAddPoints,
   onAddCustomGoal,
+  nutritionTargets,
+  onUpdateNutritionTargets,
   onOpenLogFood,
 }: CreateModalProps) {
-  const [activeSubModal, setActiveSubModal] = useState<'none' | 'meal' | 'workout' | 'journal' | 'goal'>('none');
+  const [activeSubModal, setActiveSubModal] = useState<'none' | 'meal' | 'workout' | 'journal' | 'goal' | 'dietTargets'>('none');
 
   // Meal Log State
   const [mealProtein, setMealProtein] = useState('30');
@@ -54,7 +58,23 @@ export default function CreateModal({
 
   // Goal Log State
   const [goalTitle, setGoalTitle] = useState('');
-  const [goalPillar, setGoalPillar] = useState('Fitness');
+  const [goalPillar, setGoalPillar] = useState<Category>('Fitness');
+  const [goalTarget, setGoalTarget] = useState('');
+  const [goalDesc, setGoalDesc] = useState('');
+
+  const [targetProtein, setTargetProtein] = useState(String(nutritionTargets.protein));
+  const [targetCarbs, setTargetCarbs] = useState(String(nutritionTargets.carbs));
+  const [targetFats, setTargetFats] = useState(String(nutritionTargets.fats));
+  const [targetFiber, setTargetFiber] = useState(String(nutritionTargets.fiber));
+  const [targetCalories, setTargetCalories] = useState(String(nutritionTargets.calories));
+
+  useEffect(() => {
+    setTargetProtein(String(nutritionTargets.protein));
+    setTargetCarbs(String(nutritionTargets.carbs));
+    setTargetFats(String(nutritionTargets.fats));
+    setTargetFiber(String(nutritionTargets.fiber));
+    setTargetCalories(String(nutritionTargets.calories));
+  }, [nutritionTargets]);
 
   if (!isOpen) return null;
 
@@ -96,25 +116,39 @@ export default function CreateModal({
     if (!goalTitle.trim()) return;
     if (onAddCustomGoal) {
       onAddCustomGoal({
-        title: goalTitle,
-        desc: `Target 90-day challenge goal in ${goalPillar} pillar.`
+        title: goalTitle.trim(),
+        pillar: goalPillar,
+        target: goalTarget.trim() || undefined,
+        desc: goalDesc.trim() || `90-day challenge goal in the ${goalPillar} pillar.`,
       });
     }
-    alert(`🎯 NEW CHALLENGE TARGET SET!\n"${goalTitle}" is now live in your 90-day active mission board.`);
     setGoalTitle('');
+    setGoalTarget('');
+    setGoalDesc('');
     setActiveSubModal('none');
     onClose();
   };
 
+  const handleDietTargetsSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    onUpdateNutritionTargets({
+      protein: Math.max(0, Number(targetProtein) || 0),
+      carbs: Math.max(0, Number(targetCarbs) || 0),
+      fats: Math.max(0, Number(targetFats) || 0),
+      fiber: Math.max(0, Number(targetFiber) || 0),
+      calories: Math.max(0, Number(targetCalories) || 0),
+    });
+    setActiveSubModal('none');
+    onClose();
+  };
   const actionCards = [
-    { id: 'habit', title: 'Habit', desc: 'Track a daily habit or action', emoji: '✅', color: 'bg-emerald-50 text-emerald-600 border-emerald-100', onClick: () => { openCreateHabit(); onClose(); } },
-    { id: 'routine', title: 'Routine', desc: 'Group habits into a routine', emoji: '📦', color: 'bg-blue-50 text-blue-600 border-blue-100', onClick: () => { openCreateRoutine(); onClose(); } },
-    { id: 'goal', title: 'Goal', desc: 'Set a goal you want to achieve', emoji: '🎯', color: 'bg-purple-50 text-purple-600 border-purple-100', onClick: () => setActiveSubModal('goal') },
-    { id: 'workout', title: 'Workout', desc: 'Log a workout or activity', emoji: '🏋️', color: 'bg-rose-50 text-rose-600 border-rose-100', onClick: () => setActiveSubModal('workout') },
-    { id: 'meal', title: 'Meal', desc: 'Log a meal and track nutrition', emoji: '🍴', color: 'bg-amber-50 text-amber-600 border-amber-100', onClick: () => { onClose(); onOpenLogFood(); } },
-    { id: 'journal', title: 'Journal', desc: 'Write your thoughts and reflect', emoji: '📘', color: 'bg-indigo-50 text-indigo-600 border-indigo-100', onClick: () => setActiveSubModal('journal') },
+    { id: 'habit', title: 'Habit', desc: 'Track one daily action', emoji: 'H', color: 'bg-emerald-50 text-emerald-600 border-emerald-100', onClick: () => { openCreateHabit(); onClose(); } },
+    { id: 'routine', title: 'Routine', desc: 'Stack habits together', emoji: 'R', color: 'bg-blue-50 text-blue-600 border-blue-100', onClick: () => { openCreateRoutine(); onClose(); } },
+    { id: 'goal', title: 'Pillar Goal', desc: 'Add a 90-day target', emoji: 'G', color: 'bg-violet-50 text-violet-600 border-violet-100', onClick: () => setActiveSubModal('goal') },
+    { id: 'dietTargets', title: 'Diet Targets', desc: 'Edit macros and calories', emoji: 'D', color: 'bg-amber-50 text-amber-600 border-amber-100', onClick: () => setActiveSubModal('dietTargets') },
+    { id: 'meal', title: 'Food Log', desc: 'Log a meal with macros', emoji: 'F', color: 'bg-orange-50 text-orange-600 border-orange-100', onClick: () => { onClose(); onOpenLogFood(); } },
+    { id: 'journal', title: 'Journal', desc: 'Capture a reflection', emoji: 'J', color: 'bg-indigo-50 text-indigo-600 border-indigo-100', onClick: () => setActiveSubModal('journal') },
   ];
-
   return (
     <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-end sm:items-center justify-center z-50 select-none p-0 sm:p-4">
       <div className="bg-white rounded-t-[32px] sm:rounded-[32px] w-full max-w-md p-5 pb-7 sm:p-6 space-y-4 sm:space-y-6 shadow-2xl relative animate-slide-up max-h-[90vh] sm:max-h-[85vh] overflow-y-auto">
@@ -164,10 +198,11 @@ export default function CreateModal({
           <div>
             <div className="flex justify-between items-center mb-4">
               <h3 className="text-base font-black text-[#0F172A] tracking-tight uppercase">
-                {activeSubModal === 'meal' && '🍴 Log Meal & Macros'}
-                {activeSubModal === 'workout' && '🏋️ Record Workout'}
-                {activeSubModal === 'journal' && '📘 Day Reflection Journal'}
-                {activeSubModal === 'goal' && '🎯 Set New Active Target'}
+                {activeSubModal === 'meal' && 'Log Meal & Macros'}
+                {activeSubModal === 'workout' && 'Record Workout'}
+                {activeSubModal === 'journal' && 'Day Reflection Journal'}
+                {activeSubModal === 'goal' && 'Set Pillar Goal'}
+                {activeSubModal === 'dietTargets' && 'Edit Diet Targets'}
               </h3>
               <button 
                 onClick={() => setActiveSubModal('none')}
@@ -250,20 +285,62 @@ export default function CreateModal({
               <form onSubmit={handleGoalSubmit} className="space-y-4">
                 <div>
                   <label className="text-[10px] font-black text-gray-450 uppercase block mb-1">Goal Title</label>
-                  <input type="text" placeholder="e.g. Run 5K in under 25 mins" value={goalTitle} onChange={e => setGoalTitle(e.target.value)} className="w-full bg-slate-50 border border-gray-150 p-2.5 rounded-xl text-sm font-bold focus:outline-none focus:border-emerald-500" required />
+                  <input type="text" placeholder="e.g. Cut to 72kg, finish React project" value={goalTitle} onChange={e => setGoalTitle(e.target.value)} className="w-full bg-slate-50 border border-gray-150 p-2.5 rounded-xl text-sm font-bold focus:outline-none focus:border-emerald-500" required />
                 </div>
                 <div>
-                  <label className="text-[10px] font-black text-gray-450 uppercase block mb-1">Select Pillar</label>
-                  <select value={goalPillar} onChange={e => setGoalPillar(e.target.value)} className="w-full bg-slate-50 border border-gray-150 p-2.5 rounded-xl text-sm font-bold focus:outline-none focus:border-emerald-500">
-                    <option value="Fitness">🏋️ Fitness</option>
-                    <option value="Nutrition">🥗 Nutrition</option>
-                    <option value="Career">💻 Career</option>
-                    <option value="Recovery">😴 Recovery</option>
-                    <option value="Mind">🧠 Mind</option>
-                  </select>
+                  <label className="text-[10px] font-black text-gray-450 uppercase block mb-1">Measurable Target</label>
+                  <input type="text" placeholder="e.g. 5 workouts/week, 150g protein/day" value={goalTarget} onChange={e => setGoalTarget(e.target.value)} className="w-full bg-slate-50 border border-gray-150 p-2.5 rounded-xl text-sm font-bold focus:outline-none focus:border-emerald-500" />
                 </div>
-                <button type="submit" className="w-full bg-emerald-500 hover:bg-emerald-600 text-white font-extrabold text-xs py-3 rounded-xl transition shadow-md shadow-emerald-500/10 mt-2 cursor-pointer">
-                  Activate Challenge Target
+                <div>
+                  <label className="text-[10px] font-black text-gray-450 uppercase block mb-1">Pillar</label>
+                  <div className="grid grid-cols-5 gap-1.5">
+                    {(['Fitness', 'Nutrition', 'Career', 'Recovery', 'Mind'] as Category[]).map((pillar) => (
+                      <button
+                        key={pillar}
+                        type="button"
+                        onClick={() => setGoalPillar(pillar)}
+                        className={`py-2 rounded-xl border text-[9px] font-black transition cursor-pointer ${
+                          goalPillar === pillar
+                            ? 'bg-[#0F172A] text-white border-[#0F172A]'
+                            : 'bg-slate-50 text-gray-500 border-gray-150 hover:border-gray-300'
+                        }`}
+                      >
+                        {pillar.slice(0, 3)}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <label className="text-[10px] font-black text-gray-450 uppercase block mb-1">Why it matters</label>
+                  <textarea rows={3} placeholder="Short reason or success rule..." value={goalDesc} onChange={e => setGoalDesc(e.target.value)} className="w-full bg-slate-50 border border-gray-150 p-3 rounded-xl text-sm font-medium focus:outline-none focus:border-emerald-500" />
+                </div>
+                <button type="submit" className="w-full bg-[#0F172A] hover:bg-slate-800 text-white font-extrabold text-xs py-3 rounded-xl transition shadow-md mt-2 cursor-pointer">
+                  Pin Goal To Pillar
+                </button>
+              </form>
+            )}
+
+            {activeSubModal === 'dietTargets' && (
+              <form onSubmit={handleDietTargetsSubmit} className="space-y-4">
+                <div className="grid grid-cols-2 gap-3">
+                  {[
+                    { label: 'Protein', value: targetProtein, setValue: setTargetProtein, unit: 'g' },
+                    { label: 'Carbs', value: targetCarbs, setValue: setTargetCarbs, unit: 'g' },
+                    { label: 'Fats', value: targetFats, setValue: setTargetFats, unit: 'g' },
+                    { label: 'Fiber', value: targetFiber, setValue: setTargetFiber, unit: 'g' },
+                  ].map((field) => (
+                    <div key={field.label}>
+                      <label className="text-[10px] font-black text-gray-450 uppercase block mb-1">{field.label} ({field.unit})</label>
+                      <input type="number" min="0" value={field.value} onChange={e => field.setValue(e.target.value)} className="w-full bg-slate-50 border border-gray-150 p-2.5 rounded-xl text-sm font-bold focus:outline-none focus:border-emerald-500" />
+                    </div>
+                  ))}
+                </div>
+                <div>
+                  <label className="text-[10px] font-black text-gray-450 uppercase block mb-1">Calories (kcal)</label>
+                  <input type="number" min="0" value={targetCalories} onChange={e => setTargetCalories(e.target.value)} className="w-full bg-slate-50 border border-gray-150 p-2.5 rounded-xl text-sm font-bold focus:outline-none focus:border-emerald-500" />
+                </div>
+                <button type="submit" className="w-full bg-amber-500 hover:bg-amber-600 text-white font-extrabold text-xs py-3 rounded-xl transition shadow-md shadow-amber-500/10 mt-2 cursor-pointer">
+                  Save Diet Targets
                 </button>
               </form>
             )}

@@ -2,25 +2,22 @@ import { Habit, Routine, UserStats } from './types';
 
 const API_BASE = '/api';
 
-function getHeaders() {
-  const token = localStorage.getItem('habit_mountain_token');
+export async function fetchWithAuth(url: string, options: RequestInit = {}, includeAuth = true) {
   const headers: HeadersInit = {
     'Content-Type': 'application/json',
+    ...(options.headers ?? {}),
   };
-  if (token) {
-    headers['Authorization'] = `Bearer ${token}`;
-  }
-  return headers;
-}
 
-export async function fetchWithAuth(url: string, options: RequestInit = {}) {
-  const headers = getHeaders();
+  if (includeAuth) {
+    const token = localStorage.getItem('habit_mountain_token');
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+  }
+
   const config = {
     ...options,
-    headers: {
-      ...headers,
-      ...options.headers,
-    },
+    headers,
   };
 
   const response = await fetch(`${API_BASE}${url}`, config);
@@ -50,14 +47,14 @@ export const api = {
     return fetchWithAuth('/auth/login', {
       method: 'POST',
       body: JSON.stringify({ email: emailStr, password: passwordStr }),
-    });
+    }, false);
   },
 
   async register(emailStr: string, passwordStr: string) {
     return fetchWithAuth('/auth/register', {
       method: 'POST',
       body: JSON.stringify({ email: emailStr, password: passwordStr }),
-    });
+    }, false);
   },
 
   async getProfile() {

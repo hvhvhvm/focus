@@ -25,9 +25,11 @@ import {
   Target,
   Brain
 } from 'lucide-react';
-import { Habit, Routine, Category } from '../types';
+import { Habit, Routine, Category, PillarGoal } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
 import RoutineDetailsModal from './RoutineDetailsModal';
+import type { LoggedFood } from './DietScreen';
+import { PILLAR_META } from '../lib/pillars';
 
 interface HomeScreenProps {
   habits: Habit[];
@@ -52,9 +54,13 @@ interface HomeScreenProps {
     fiber: number;
     calories: number;
   };
+  // NEW: today's actual food entries + remove handler, so the diet card can act as a real log
+  todaysFoodLog?: LoggedFood[];
+  onRemoveFood?: (id: string) => void;
   onOpenLogFood: () => void;
   onOpenCreateModal: () => void;
   onRefresh?: () => Promise<void>;
+  pillarGoals?: PillarGoal[];
 }
 
 export default function HomeScreen({
@@ -68,9 +74,12 @@ export default function HomeScreen({
   currentUser,
   nutritionToday,
   nutritionTargets,
+  todaysFoodLog = [],
+  onRemoveFood,
   onOpenLogFood,
   onOpenCreateModal,
   onRefresh,
+  pillarGoals = [],
 }: HomeScreenProps) {
   const targets = nutritionTargets || {
     protein: 150,
@@ -82,7 +91,7 @@ export default function HomeScreen({
 
   // Map standard categories to 5 Core Pillars
   const mapCategoryToPillar = (category: string): 'Fitness' | 'Nutrition' | 'Career' | 'Recovery' | 'Mind' => {
-    const cat = category.toLowerCase();
+    const cat = (category || '').toLowerCase();
     if (cat === 'fitness') return 'Fitness';
     if (cat === 'nutrition' || cat.includes('diet')) return 'Nutrition';
     if (cat === 'career') return 'Career';
@@ -96,13 +105,22 @@ export default function HomeScreen({
     return 'Mind';
   };
 
+  const getPillarIcon = (pillar: Category) => {
+    if (pillar === 'Fitness') return Dumbbell;
+    if (pillar === 'Nutrition') return Apple;
+    if (pillar === 'Career') return Briefcase;
+    if (pillar === 'Recovery') return Moon;
+    return Brain;
+  };
+
+  const getPillarGoalCount = (pillar: Category) => pillarGoals.filter(goal => goal.pillar === pillar).length;
+
   const routineHabitIds = new Set(routines.flatMap(r => r.habitIds));
   const standaloneHabits = habits.filter(h => !routineHabitIds.has(h.id));
 
   // Calculate day completion stats
   const doneTodayCount = standaloneHabits.filter((h) => (h.history[dateToday] || 0) >= h.target).length;
   const totalTodayCount = standaloneHabits.length;
-  const standaloneProgress = totalTodayCount > 0 ? (doneTodayCount / totalTodayCount) : 0;
 
   // Calculate routine completion stats
   const completedRoutines = routines.filter(r => {
@@ -110,12 +128,11 @@ export default function HomeScreen({
     return rHabits.length > 0 && rHabits.every(h => (h.history[dateToday] || 0) >= h.target);
   }).length;
   const totalRoutines = routines.length;
-  const routineProgress = totalRoutines > 0 ? (completedRoutines / totalRoutines) : 0;
 
   // Today's Score calculation
   const todayScore = totalTodayCount + totalRoutines > 0 
     ? Math.round(((doneTodayCount + completedRoutines) / (totalTodayCount + totalRoutines)) * 100)
-    : 85; // highly positive baseline fallback
+    : 0;
 
   // Day streak calculation
   const dayStreak = currentUser?.consecutive_locked_in_streak !== undefined ? currentUser.consecutive_locked_in_streak : 0;
@@ -130,28 +147,60 @@ export default function HomeScreen({
   }
   const missionProgressPercent = Math.round((currentDay / 90) * 100);
 
-  // Pillars stats calculation
-  const getPillarStats = (pillarName: 'Fitness' | 'Nutrition' | 'Career' | 'Recovery' | 'Mind') => {
-    const pillarHabits = habits.filter(h => mapCategoryToPillar(h.category) === pillarName);
-    if (pillarHabits.length === 0) {
-      // Return high professional baseline stats if empty so the screen looks fully populated & functional
-      if (pillarName === 'Fitness') return 91;
-      if (pillarName === 'Nutrition') return 78;
-      if (pillarName === 'Career') return 84;
-      if (pillarName === 'Recovery') return 88;
-      return 80;
-    }
-    const completed = pillarHabits.filter(h => (h.history[dateToday] || 0) >= h.target).length;
-    return Math.round((completed / pillarHabits.length) * 100);
+  // FIX #2: Determine a routine's "focus category" from the habits it actually contains
+  // (majority category wins), so routines can be attributed to a pillar too.
+  const getRoutineCategory = (routine: Routine): string => {
+    const rHabits = habits.filter(h => routine.habitIds.includes(h.id));
+    if (rHabits.length === 0) return 'Mind';
+    const counts: Record<string, number> = {};
+    rHabits.forEach(h => {
+      counts[h.category] = (counts[h.category] || 0) + 1;
+    });
+    return Object.entries(counts).sort((a, b) => b[1] - a[1])[0][0];
   };
 
-  const pillarDetails = [
-    { name: 'Fitness', value: getPillarStats('Fitness'), color: 'bg-emerald-500 text-emerald-500 bg-emerald-500/10 border-emerald-500/20', icon: Dumbbell },
-    { name: 'Nutrition', value: getPillarStats('Nutrition'), color: 'bg-amber-500 text-amber-500 bg-amber-500/10 border-amber-500/20', icon: Apple },
-    { name: 'Career', value: getPillarStats('Career'), color: 'bg-blue-500 text-blue-500 bg-blue-500/10 border-blue-500/20', icon: Briefcase },
-    { name: 'Recovery', value: getPillarStats('Recovery'), color: 'bg-purple-500 text-purple-500 bg-purple-500/10 border-purple-500/20', icon: Moon },
-    { name: 'Mind', value: getPillarStats('Mind'), color: 'bg-rose-500 text-rose-500 bg-rose-500/10 border-rose-500/20', icon: Heart },
-  ];
+  // Completion fraction (0-1) for a routine today, based on its constituent habits
+  const routineProgressCount = (routine: Routine) => {
+    const rHabits = habits.filter(h => routine.habitIds.includes(h.id));
+    const completed = rHabits.filter(h => (h.history[dateToday] || 0) >= h.target).length;
+    return { completed, total: rHabits.length };
+  };
+
+  // FIX #2: Pillar completion now blends BOTH standalone habits and routines whose
+  // majority-category maps into that pillar — no more fake baseline numbers when empty.
+  const getPillarStats = (pillarName: 'Fitness' | 'Nutrition' | 'Career' | 'Recovery' | 'Mind') => {
+    const pillarStandaloneHabits = standaloneHabits.filter(h => mapCategoryToPillar(h.category) === pillarName);
+    const pillarRoutines = routines.filter(r => mapCategoryToPillar(getRoutineCategory(r)) === pillarName);
+
+    const habitRatios = pillarStandaloneHabits.map(h => {
+      const val = h.history[dateToday] || 0;
+      return h.target > 0 ? Math.min(1, val / h.target) : 0;
+    });
+
+    const routineRatios = pillarRoutines.map(r => {
+      const { completed, total } = routineProgressCount(r);
+      return total > 0 ? completed / total : 0;
+    });
+
+    const allRatios = [...habitRatios, ...routineRatios];
+    if (allRatios.length === 0) return 0;
+    return Math.round((allRatios.reduce((a, b) => a + b, 0) / allRatios.length) * 100);
+  };
+
+  const getPillarItemCount = (pillarName: 'Fitness' | 'Nutrition' | 'Career' | 'Recovery' | 'Mind') => {
+    const h = standaloneHabits.filter(hh => mapCategoryToPillar(hh.category) === pillarName).length;
+    const r = routines.filter(rt => mapCategoryToPillar(getRoutineCategory(rt)) === pillarName).length;
+    return h + r;
+  };
+
+  const pillarDetails = (['Fitness', 'Nutrition', 'Career', 'Recovery', 'Mind'] as Category[]).map((name) => ({
+    name,
+    value: getPillarStats(name),
+    items: getPillarItemCount(name),
+    goals: getPillarGoalCount(name),
+    meta: PILLAR_META[name],
+    icon: getPillarIcon(name),
+  }));
 
   // NEW: State for Quick Habit Logger Active Filter (All, Morning, Afternoon, Evening, Night)
   const [activeFilter, setActiveFilter] = useState<'All' | 'Morning' | 'Afternoon' | 'Evening' | 'Night'>('All');
@@ -176,7 +225,7 @@ export default function HomeScreen({
     }
   };
 
-  // NEW: Date helpers to compute yesterday's date & yesterday's / today's completion rates
+  // Date helpers to compute yesterday's date & yesterday's / today's completion rates
   const formatDateString = (date: Date) => {
     const yyyy = date.getFullYear();
     const mm = String(date.getMonth() + 1).padStart(2, '0');
@@ -205,7 +254,7 @@ export default function HomeScreen({
   const yesterdayCompletionRate = getCompletionRateForDate(yesterdayDate);
   const isAhead = todayCompletionRate >= yesterdayCompletionRate;
 
-  // NEW: Helper to count standalone habits dynamically in each filter
+  // Helper to count standalone habits dynamically in each filter
   const getBlockHabitsCount = (blockId: string) => {
     if (blockId === 'All') {
       return standaloneHabits.length;
@@ -213,10 +262,10 @@ export default function HomeScreen({
     return standaloneHabits.filter(h => h.timeBlock === blockId).length;
   };
 
-  // NEW: Remaining count for the main header badge
+  // Remaining count for the main header badge
   const remainingCount = habits.filter(h => (h.history[dateToday] || 0) < h.target).length;
 
-  // NEW: Filter configuration with beautiful icons and color styles matching the screenshot
+  // Filter configuration with beautiful icons and color styles matching the screenshot
   const timeFilters = [
     { id: 'All' as const, label: 'All', icon: CheckCircle, selectedClass: 'bg-[#102a24] text-[#14b8a6] border-[#14b8a6]/40 shadow-lg shadow-emerald-500/10', count: getBlockHabitsCount('All') },
     { id: 'Morning' as const, label: 'Morning', icon: Sun, selectedClass: 'bg-amber-950/40 text-amber-400 border-amber-500/30 shadow-lg shadow-amber-500/10', count: getBlockHabitsCount('Morning') },
@@ -225,102 +274,80 @@ export default function HomeScreen({
     { id: 'Night' as const, label: 'Night', icon: Moon, selectedClass: 'bg-purple-950/40 text-purple-400 border-purple-500/30 shadow-lg shadow-purple-500/10', count: getBlockHabitsCount('Night') },
   ];
 
-  // NEW: Filter habits based on selected block
+  // Filter habits based on selected block
   const filteredHabits = standaloneHabits.filter(h => {
     if (activeFilter === 'All') return true;
     return h.timeBlock === activeFilter;
   });
 
-  // NEW: Filter routines based on selected block
+  // Filter routines based on selected block
   const filteredRoutines = routines.filter(r => {
     if (activeFilter === 'All') return r.timeBlock === 'Morning' || r.timeBlock === 'Evening'; // default showcase routines if 'All'
     return r.timeBlock === activeFilter;
   });
 
-  // NEW: Calculate progress for a routine's habits
-  const routineProgressCount = (routine: Routine) => {
-    const rHabits = habits.filter(h => routine.habitIds.includes(h.id));
-    const completed = rHabits.filter(h => (h.history[dateToday] || 0) >= h.target).length;
-    return { completed, total: rHabits.length };
-  };
-
-  // NEW: Helper for custom logger colors matching the dark premium theme
   const getCategoryMetaForLogger = (category: string) => {
-    const cat = category.toLowerCase();
-    if (cat.includes('fit') || cat.includes('gym') || cat.includes('workout') || cat.includes('run') || cat.includes('sport') || cat.includes('jump')) {
-      return {
-        lucideIcon: Dumbbell,
-        accentColor: '#10B981', // emerald
-        bgColor: '#10b98115',
-        borderColor: '#10b98130',
-        label: 'Fitness',
-      };
-    }
-    if (cat.includes('read') || cat.includes('book') || cat.includes('study') || cat.includes('academic') || cat.includes('learn')) {
-      return {
-        lucideIcon: BookOpen,
-        accentColor: '#3B82F6', // blue
-        bgColor: '#3b82f615',
-        borderColor: '#3b82f630',
-        label: 'Reading',
-      };
-    }
-    if (cat.includes('diet') || cat.includes('nutri') || cat.includes('food') || cat.includes('protein') || cat.includes('eat') || cat.includes('salad')) {
-      return {
-        lucideIcon: Apple,
-        accentColor: '#F59E0B', // amber
-        bgColor: '#f59e0b15',
-        borderColor: '#f59e0b30',
-        label: 'Diet',
-      };
-    }
-    if (cat.includes('skill') || cat.includes('target') || cat.includes('focus') || cat.includes('goal')) {
-      return {
-        lucideIcon: Target,
-        accentColor: '#8B5CF6', // purple
-        bgColor: '#8b5cf615',
-        borderColor: '#8b5cf630',
-        label: 'Skill',
-      };
-    }
-    if (cat.includes('mindset') || cat.includes('meditat') || cat.includes('calm') || cat.includes('zen') || cat.includes('spirit') || cat.includes('affirm') || cat.includes('mind')) {
-      return {
-        lucideIcon: Brain,
-        accentColor: '#EC4899', // pink/rose
-        bgColor: '#ec489915',
-        borderColor: '#ec489930',
-        label: 'Mindset',
-      };
-    }
+    const pillar = mapCategoryToPillar(category);
+    const meta = PILLAR_META[pillar];
     return {
-      lucideIcon: Sparkles,
-      accentColor: '#64748B', // slate
-      bgColor: '#64748b15',
-      borderColor: '#64748b30',
-      label: 'Custom',
+      lucideIcon: getPillarIcon(pillar),
+      accentColor: meta.accent,
+      bgColor: `${meta.accent}18`,
+      borderColor: `${meta.accent}36`,
+      label: meta.label,
+      pillar,
     };
   };
 
-  // NEW: 1-Tap Quick log action
+  const getRoutineMetaForLogger = (routine: Routine) => {
+    const pillar = mapCategoryToPillar(getRoutineCategory(routine));
+    const meta = PILLAR_META[pillar];
+    return {
+      lucideIcon: getPillarIcon(pillar),
+      accentColor: meta.accent,
+      label: meta.label,
+      pillar,
+    };
+  };
+
+  // FIX #1: One-tap complete. A single tap on the check circle marks the habit
+  // FULLY done regardless of target (target - current, in one shot). Tapping an
+  // already-completed habit undoes it back to 0. No more incremental +1 taps.
   const handleQuickLog = async (habitId: string) => {
     const targetHabit = habits.find((h) => h.id === habitId);
     if (!targetHabit) return;
-
     const curToday = targetHabit.history[dateToday] || 0;
-    
-    if (targetHabit.target === 1) {
-      const isCompleted = curToday >= 1;
-      await onLogHabit(habitId, isCompleted ? -1 : 1);
+    const isCompleted = curToday >= targetHabit.target;
+    if (isCompleted) {
+      await onLogHabit(habitId, -curToday); // undo
     } else {
-      if (curToday >= targetHabit.target) {
-        // Reset to 0
-        await onLogHabit(habitId, -curToday);
-      } else {
-        // Increment by 1
-        await onLogHabit(habitId, 1);
-      }
+      await onLogHabit(habitId, targetHabit.target - curToday); // complete in one tap
     }
   };
+
+  const importantHabits = standaloneHabits
+    .map((habit) => {
+      const progress = habit.history[dateToday] || 0;
+      const isCompleted = progress >= habit.target;
+      const priority =
+        (isCompleted ? -100 : 0) +
+        (habit.enableFocusTimer ? 30 : 0) +
+        (habit.repeat === 'Today Only' ? 25 : 0) +
+        Math.min(30, habit.points || 0) +
+        (habit.timeBlock && habit.timeBlock !== 'Anytime' ? 8 : 0);
+      return { habit, priority };
+    })
+    .sort((a, b) => b.priority - a.priority)
+    .slice(0, 5)
+    .map(item => item.habit);
+
+  const focusRoutines = routines
+    .filter((routine) => {
+      const { completed, total } = routineProgressCount(routine);
+      return total > 0 && completed < total;
+    })
+    .sort((a, b) => b.points - a.points)
+    .slice(0, 2);
 
   return (
     <div className="w-full bg-[#F8F9FC] text-[#1E293B] flex flex-col font-sans pb-12 relative">
@@ -366,18 +393,9 @@ export default function HomeScreen({
             {/* Circular Progress Indicator */}
             <div className="relative w-24 h-24 flex items-center justify-center">
               <svg className="w-full h-full transform -rotate-90">
+                <circle cx="48" cy="48" r="38" className="stroke-slate-800" strokeWidth="6" fill="transparent" />
                 <circle
-                  cx="48"
-                  cy="48"
-                  r="38"
-                  className="stroke-slate-800"
-                  strokeWidth="6"
-                  fill="transparent"
-                />
-                <circle
-                  cx="48"
-                  cy="48"
-                  r="38"
+                  cx="48" cy="48" r="38"
                   className="stroke-emerald-400 transition-all duration-1000"
                   strokeWidth="6"
                   strokeDasharray={2 * Math.PI * 38}
@@ -398,12 +416,7 @@ export default function HomeScreen({
             {Array.from({ length: 8 }).map((_, idx) => {
               const isFilled = idx < Math.ceil((currentDay / 90) * 8);
               return (
-                <div 
-                  key={idx} 
-                  className={`h-2 rounded-full transition-all duration-300 ${
-                    isFilled ? 'w-5 bg-emerald-400' : 'w-2 bg-slate-800'
-                  }`} 
-                />
+                <div key={idx} className={`h-2 rounded-full transition-all duration-300 ${isFilled ? 'w-5 bg-emerald-400' : 'w-2 bg-slate-800'}`} />
               );
             })}
           </div>
@@ -439,17 +452,14 @@ export default function HomeScreen({
           </div>
         </div>
 
-        {/* Nutrition Today Block */}
+        {/* Diet — same simple macro-grid layout as before, just relabeled from "Nutrition Today" to "Diet" */}
         <div className="bg-white rounded-2xl p-5 border border-gray-100 shadow-sm">
           <div className="flex justify-between items-center mb-4">
             <div className="flex items-center gap-2">
               <Apple className="w-4.5 h-4.5 text-emerald-500" />
-              <h3 className="text-sm font-bold text-[#0F172A] uppercase tracking-wider">Nutrition Today</h3>
+              <h3 className="text-sm font-bold text-[#0F172A] uppercase tracking-wider">Diet</h3>
             </div>
-            <button 
-              onClick={onOpenLogFood}
-              className="text-[11px] font-bold text-emerald-500 hover:text-emerald-600 transition"
-            >
+            <button onClick={onOpenLogFood} className="text-[11px] font-bold text-emerald-500 hover:text-emerald-600 transition">
               Log Food &gt;
             </button>
           </div>
@@ -463,7 +473,7 @@ export default function HomeScreen({
               { label: 'Fiber', value: nutritionToday.fiber, target: targets.fiber, unit: 'g', color: 'bg-purple-500' },
               { label: 'Calories', value: nutritionToday.calories, target: targets.calories, unit: 'kcal', color: 'bg-slate-700' },
             ].map((macro) => {
-              const progress = Math.min(100, Math.round((macro.value / macro.target) * 100));
+              const progress = Math.min(100, Math.round((macro.value / (macro.target || 1)) * 100));
               return (
                 <div key={macro.label} className="flex flex-col items-center">
                   <span className="text-[8px] font-bold text-gray-400 uppercase tracking-widest">{macro.label}</span>
@@ -471,8 +481,7 @@ export default function HomeScreen({
                     {macro.value}<span className="text-[9px] text-gray-400 font-normal">{macro.unit}</span>
                   </span>
                   <span className="text-[9px] font-semibold text-gray-400">/ {macro.target}</span>
-                  
-                  {/* Progress bar container */}
+
                   <div className="w-full bg-gray-100 h-1 rounded-full mt-2 overflow-hidden">
                     <div className={`${macro.color} h-full rounded-full`} style={{ width: `${progress}%` }} />
                   </div>
@@ -482,7 +491,7 @@ export default function HomeScreen({
             })}
           </div>
 
-          <button 
+          <button
             onClick={onOpenLogFood}
             className="w-full bg-[#12B886]/5 hover:bg-[#12B886]/10 text-emerald-500 text-xs font-bold py-2.5 rounded-xl border border-[#12B886]/10 flex items-center justify-center gap-1.5 transition mt-4"
           >
@@ -530,9 +539,7 @@ export default function HomeScreen({
                   key={filter.id}
                   onClick={() => setActiveFilter(filter.id)}
                   className={`flex items-center gap-1.5 px-3.5 py-2 rounded-full text-xs font-bold transition-all duration-300 border cursor-pointer whitespace-nowrap ${
-                    isSelected
-                      ? filter.selectedClass
-                      : 'bg-[#121620] text-slate-400 border-slate-800 hover:text-slate-200 hover:border-slate-700'
+                    isSelected ? filter.selectedClass : 'bg-[#121620] text-slate-400 border-slate-800 hover:text-slate-200 hover:border-slate-700'
                   }`}
                 >
                   <Icon className={`w-3.5 h-3.5 ${isSelected ? '' : 'text-slate-400'}`} />
@@ -549,8 +556,7 @@ export default function HomeScreen({
           <div className="grid grid-cols-2 gap-4 bg-[#121620] border border-slate-800/60 rounded-2xl p-4 mb-4">
             <div>
               <div className="flex justify-between text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">
-                <span>Yesterday</span>
-                <span>{yesterdayCompletionRate}%</span>
+                <span>Yesterday</span><span>{yesterdayCompletionRate}%</span>
               </div>
               <div className="w-full bg-[#1b2234] h-1.5 rounded-full overflow-hidden">
                 <div className="bg-slate-600 h-full rounded-full transition-all duration-500" style={{ width: `${yesterdayCompletionRate}%` }} />
@@ -576,40 +582,49 @@ export default function HomeScreen({
               {filteredRoutines.map((routine) => {
                 const { completed, total } = routineProgressCount(routine);
                 const pct = total > 0 ? Math.round((completed / total) * 100) : 0;
+                const rMeta = getRoutineMetaForLogger(routine);
+                const RoutineIcon = rMeta.lucideIcon;
                 
                 return (
-                  <div
+                  <button
                     key={routine.id}
                     onClick={() => setActiveRoutineDetails(routine)}
-                    className="group bg-[#121620] hover:bg-[#151c2a] border border-slate-800/80 rounded-2xl p-4 transition-all duration-300 flex items-center justify-between gap-4 border-l-[6px] border-l-emerald-500 cursor-pointer shadow-sm"
+                    className="group w-full bg-[#121620] hover:bg-[#151c2a] border border-slate-800/80 rounded-2xl px-3 py-2.5 transition-all duration-300 flex items-center justify-between gap-3 cursor-pointer shadow-sm relative overflow-hidden text-left"
                   >
-                    <div className="flex items-center gap-3 min-w-0">
-                      <div className="w-10 h-10 rounded-full bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400 shrink-0">
-                        <Dumbbell className="w-4.5 h-4.5" />
+                    <div className="absolute left-0 top-0 bottom-0 w-1.5" style={{ backgroundColor: rMeta.accentColor }} />
+                    <div className="flex items-center gap-2.5 min-w-0 flex-1 pl-1.5">
+                      <div
+                        className="w-8 h-8 rounded-xl border flex items-center justify-center shrink-0"
+                        style={{ backgroundColor: `${rMeta.accentColor}16`, borderColor: `${rMeta.accentColor}34`, color: rMeta.accentColor }}
+                      >
+                        <RoutineIcon className="w-4 h-4" />
                       </div>
-                      <div className="min-w-0">
-                        <h4 className="text-xs sm:text-sm font-black text-white truncate group-hover:text-emerald-400 transition-colors">
-                          {routine.name}
-                        </h4>
-                        <div className="flex items-center gap-2 mt-1 flex-wrap">
-                          <span className="text-[8px] font-bold uppercase tracking-wider text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/10">
-                            {routine.timeBlock}
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center justify-between gap-2">
+                          <h4 className="text-xs font-black text-white truncate group-hover:opacity-90 transition-colors">
+                            {routine.name}
+                          </h4>
+                          <span className="text-[10px] font-black font-mono shrink-0" style={{ color: rMeta.accentColor }}>
+                            {pct}%
                           </span>
-                          <span className="text-[10px] font-semibold text-slate-400">
-                            {completed}/{total} completed
+                        </div>
+                        <div className="mt-1.5 flex items-center gap-2">
+                          <div className="h-1.5 bg-slate-900 rounded-full overflow-hidden flex-1">
+                            <div className="h-full rounded-full" style={{ width: `${pct}%`, backgroundColor: rMeta.accentColor }} />
+                          </div>
+                          <span className="text-[9px] text-slate-400 font-bold whitespace-nowrap">
+                            {completed}/{total} tasks
                           </span>
                         </div>
                       </div>
                     </div>
-                    
-                    <div className="flex items-center gap-3 shrink-0">
-                      <div className="bg-orange-500/10 border border-orange-500/20 text-orange-400 px-2 py-1 rounded-xl text-[10px] font-bold tracking-wide flex items-center gap-1 shadow-sm">
-                        <Zap className="w-3 h-3 fill-orange-400 stroke-none" />
-                        <span>+{routine.points} XP</span>
-                      </div>
-                      <ChevronRight className="w-4 h-4 text-slate-400 group-hover:text-white group-hover:translate-x-0.5 transition-all" />
+                    <div className="flex items-center gap-2 shrink-0">
+                      <span className="hidden sm:inline-flex text-[9px] font-black uppercase tracking-wider px-2 py-1 rounded-lg border" style={{ color: rMeta.accentColor, borderColor: `${rMeta.accentColor}25`, backgroundColor: `${rMeta.accentColor}10` }}>
+                        {rMeta.label}
+                      </span>
+                      <ChevronRight className="w-4 h-4 text-slate-500 group-hover:text-white group-hover:translate-x-0.5 transition-all" />
                     </div>
-                  </div>
+                  </button>
                 );
               })}
             </div>
@@ -621,7 +636,7 @@ export default function HomeScreen({
               Individual Habits
             </span>
             <span className="text-[9px] text-slate-500 font-semibold italic">
-              Hold :: to reorder • click ◯ to complete
+              Tap ◯ to complete instantly
             </span>
           </div>
 
@@ -647,7 +662,8 @@ export default function HomeScreen({
                 return (
                   <div
                     key={habit.id}
-                    className="group bg-[#121620] rounded-2xl p-2 sm:p-3 border border-slate-850 hover:border-slate-700/60 transition-all duration-300 flex items-center justify-between gap-2 sm:gap-3 relative overflow-hidden select-none"
+                    className="group bg-[#121620] rounded-2xl p-2 sm:p-3 border border-slate-850 hover:border-slate-700/60 transition-all duration-300 flex items-center justify-between gap-2 sm:gap-3 relative overflow-hidden select-none cursor-pointer"
+                    onClick={() => handleQuickLog(habit.id)}
                   >
                     {/* Solid Vertical Accent Bar on the Left Edge */}
                     <div 
@@ -657,11 +673,6 @@ export default function HomeScreen({
 
                     {/* Content Row: Align all elements horizontally on a single line */}
                     <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1 pl-1.5">
-                      {/* Grab handle dots */}
-                      <div className="text-slate-650 hover:text-slate-400 shrink-0 cursor-grab active:cursor-grabbing hidden sm:block">
-                        <GripVertical className="w-3.5 h-3.5" />
-                      </div>
-                      
                       {/* Category Icon Circle */}
                       <div
                         className="w-8 h-8 sm:w-10 sm:h-10 rounded-full flex items-center justify-center shrink-0 border transition-all duration-300"
@@ -714,21 +725,19 @@ export default function HomeScreen({
                         <div className="w-full bg-[#1b2234] h-1.5 rounded-full mt-1.5 overflow-hidden">
                           <div
                             className="h-full rounded-full transition-all duration-500"
-                            style={{
-                              width: `${pct}%`,
-                              backgroundColor: isCompleted ? '#10b981' : hMeta.accentColor,
-                            }}
+                            style={{ width: `${pct}%`, backgroundColor: isCompleted ? '#10b981' : hMeta.accentColor }}
                           />
                         </div>
                       </div>
                     </div>
                     
-                    {/* Right: Large elegant interactive checkbox matching screenshot exactly */}
+                    {/* Right: One-tap complete circle. Clicking the row OR this button both fire the same one-tap action. */}
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
                         handleQuickLog(habit.id);
                       }}
+                      aria-label={isCompleted ? `Undo ${habit.name}` : `Complete ${habit.name}`}
                       className={`w-8 h-8 sm:w-9 sm:h-9 rounded-full flex items-center justify-center border transition-all duration-300 relative shrink-0 cursor-pointer ${
                         isCompleted
                           ? 'bg-emerald-500/15 border-emerald-500 text-emerald-400 shadow-md shadow-emerald-500/10 active:scale-95'
@@ -754,62 +763,84 @@ export default function HomeScreen({
         <div className="lg:col-span-5 space-y-6">
 
           {/* Today's Focus List */}
-          <div>
-          <div className="flex justify-between items-center mb-3 select-none">
-            <h3 className="text-sm font-bold text-[#0F172A] uppercase tracking-wider">Today's Focus</h3>
-            <button 
-              onClick={() => setTab('today')}
-              className="text-xs font-bold text-emerald-500 hover:text-emerald-600 transition"
-            >
-              View All
-            </button>
-          </div>
+          <div className="bg-white rounded-2xl p-5 border border-gray-100 shadow-sm">
+            <div className="flex justify-between items-center mb-4 select-none">
+              <div>
+                <h3 className="text-sm font-black text-[#0F172A] uppercase tracking-wider">Today Focus</h3>
+                <p className="text-[10px] text-gray-400 font-bold mt-0.5">Highest-leverage actions for the next 24 hours</p>
+              </div>
+              <button onClick={() => setTab('today')} className="text-xs font-bold text-emerald-500 hover:text-emerald-600 transition">
+                View All
+              </button>
+            </div>
 
-          <div className="space-y-2.5">
-            {standaloneHabits.map((habit) => {
-              const progressVal = habit.history[dateToday] || 0;
-              const isCompleted = progressVal >= habit.target;
-              return (
-                <div 
-                  key={habit.id}
-                  className="bg-white rounded-2xl p-4 border border-gray-100 shadow-sm flex items-center justify-between"
-                >
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-xl bg-slate-50 border border-gray-150 flex items-center justify-center">
-                      <span className="text-lg">
-                        {mapCategoryToPillar(habit.category) === 'Fitness' ? '🏋️' : mapCategoryToPillar(habit.category) === 'Nutrition' ? '🥗' : '💻'}
-                      </span>
-                    </div>
-                    <div>
-                      <h4 className="text-xs font-bold text-[#0F172A]">{habit.name}</h4>
-                      <p className="text-[10px] text-gray-400 mt-0.5">{habit.category} • {habit.target} {habit.unit}</p>
-                    </div>
-                  </div>
-                  
+            <div className="space-y-2.5">
+              {focusRoutines.map((routine) => {
+                const { completed, total } = routineProgressCount(routine);
+                const pct = total > 0 ? Math.round((completed / total) * 100) : 0;
+                const rMeta = getRoutineMetaForLogger(routine);
+                const RoutineIcon = rMeta.lucideIcon;
+                return (
                   <button
-                    onClick={() => onLogHabit(habit.id, isCompleted ? -habit.target : habit.target)}
-                    className={`w-7 h-7 rounded-full flex items-center justify-center border cursor-pointer transition-all ${
-                      isCompleted 
-                        ? 'bg-emerald-500 border-emerald-500 text-white' 
-                        : 'border-gray-250 text-transparent hover:border-emerald-500'
-                    }`}
+                    key={routine.id}
+                    className="w-full text-left rounded-2xl border border-gray-100 bg-slate-50/70 p-3 flex items-center gap-3 relative overflow-hidden cursor-pointer hover:border-slate-200 transition"
+                    onClick={() => setActiveRoutineDetails(routine)}
                   >
-                    <Check className="w-4.5 h-4.5 stroke-[3px]" />
+                    <div className="absolute left-0 top-0 bottom-0 w-1" style={{ backgroundColor: rMeta.accentColor }} />
+                    <div className="w-9 h-9 rounded-xl border flex items-center justify-center shrink-0" style={{ backgroundColor: `${rMeta.accentColor}12`, borderColor: `${rMeta.accentColor}26`, color: rMeta.accentColor }}>
+                      <RoutineIcon className="w-4 h-4" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <h4 className="text-xs font-black text-[#0F172A] truncate">{routine.name}</h4>
+                      <p className="text-[10px] text-gray-400 font-bold mt-0.5">Routine / {completed} of {total} complete</p>
+                    </div>
+                    <span className="text-xs font-black font-mono" style={{ color: rMeta.accentColor }}>{pct}%</span>
                   </button>
-                </div>
-              );
-            })}
-          </div>
-        </div>
+                );
+              })}
 
-        {/* Pillars Overview Grid */}
+              {importantHabits.map((habit) => {
+                const progressVal = habit.history[dateToday] || 0;
+                const isCompleted = progressVal >= habit.target;
+                const hMeta = getCategoryMetaForLogger(habit.category);
+                const HabitIcon = hMeta.lucideIcon;
+                return (
+                  <button
+                    key={habit.id}
+                    className="w-full bg-white rounded-2xl p-3 border border-gray-100 shadow-sm flex items-center justify-between gap-3 cursor-pointer relative overflow-hidden hover:border-gray-200 transition text-left"
+                    onClick={() => handleQuickLog(habit.id)}
+                  >
+                    <div className="absolute left-0 top-0 bottom-0 w-1" style={{ backgroundColor: isCompleted ? '#10B981' : hMeta.accentColor }} />
+                    <div className="flex items-center gap-3 min-w-0 flex-1">
+                      <div className="w-9 h-9 rounded-xl border flex items-center justify-center shrink-0" style={{ backgroundColor: `${hMeta.accentColor}12`, borderColor: `${hMeta.accentColor}26`, color: hMeta.accentColor }}>
+                        <HabitIcon className="w-4 h-4" />
+                      </div>
+                      <div className="min-w-0">
+                        <h4 className={`text-xs font-black truncate ${isCompleted ? 'line-through text-gray-400' : 'text-[#0F172A]'}`}>{habit.name}</h4>
+                        <p className="text-[10px] text-gray-400 mt-0.5 font-bold">{hMeta.label} / {habit.target} {habit.unit}</p>
+                      </div>
+                    </div>
+                    <span className={`w-7 h-7 rounded-full flex items-center justify-center border shrink-0 ${
+                      isCompleted ? 'bg-emerald-500 border-emerald-500 text-white' : 'border-gray-200 text-transparent'
+                    }`}>
+                      <Check className="w-4 h-4 stroke-[3px]" />
+                    </span>
+                  </button>
+                );
+              })}
+
+              {focusRoutines.length === 0 && importantHabits.length === 0 && (
+                <div className="text-center py-6 text-xs text-gray-400 font-semibold bg-slate-50 rounded-2xl border border-gray-100">
+                  All clear for now. Add a focused habit from the + button.
+                </div>
+              )}
+            </div>
+          </div>
+        {/* Pillars Overview Grid — now reflects real habit + routine completion */}
         <div className="bg-white rounded-2xl p-5 border border-gray-100 shadow-sm">
           <div className="flex justify-between items-center mb-4">
             <h3 className="text-sm font-bold text-[#0F172A] uppercase tracking-wider">Pillars Overview</h3>
-            <button 
-              onClick={() => setTab('progress')}
-              className="text-xs font-bold text-emerald-500 hover:text-emerald-600 transition"
-            >
+            <button onClick={() => setTab('progress')} className="text-xs font-bold text-emerald-500 hover:text-emerald-600 transition">
               See Details
             </button>
           </div>
@@ -819,40 +850,74 @@ export default function HomeScreen({
               const PillarIcon = pillar.icon;
               return (
                 <div key={pillar.name} className="flex flex-col items-center">
-                  <div className={`w-11 h-11 rounded-2xl border flex items-center justify-center ${pillar.color}`}>
+                  <div className={`w-11 h-11 rounded-2xl border flex items-center justify-center ${pillar.meta.soft} ${pillar.meta.border} ${pillar.meta.text}`}>
                     <PillarIcon className="w-5 h-5" />
                   </div>
                   <span className="text-[9px] font-bold text-[#0F172A] mt-2">{pillar.name}</span>
-                  <span className="text-xs font-black mt-0.5">{pillar.value}%</span>
+                  <span className="text-xs font-black mt-0.5" style={{ color: pillar.meta.accent }}>{pillar.value}%</span>
                   <div className="w-8 bg-gray-100 h-1 rounded-full mt-1.5 overflow-hidden">
-                    <div className="bg-emerald-500 h-full" style={{ width: `${pillar.value}%` }} />
+                    <div className="h-full rounded-full" style={{ width: `${pillar.value}%`, backgroundColor: pillar.meta.accent }} />
                   </div>
+                  <span className="text-[8px] text-gray-400 mt-1">{pillar.items} item{pillar.items === 1 ? '' : 's'}</span>
+                  <span className="text-[8px] font-black mt-0.5" style={{ color: pillar.meta.accent }}>{pillar.goals} goal{pillar.goals === 1 ? '' : 's'}</span>
                 </div>
               );
             })}
           </div>
         </div>
 
+        {pillarGoals.length > 0 && (
+          <div className="bg-[#0F172A] rounded-2xl p-5 border border-slate-800 shadow-sm text-white">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h3 className="text-sm font-black uppercase tracking-wider">90-Day Goals</h3>
+                <p className="text-[10px] text-slate-400 font-bold mt-0.5">Pinned by pillar</p>
+              </div>
+              <button onClick={onOpenCreateModal} className="text-xs font-black text-emerald-400 hover:text-emerald-300 transition">
+                Add Goal
+              </button>
+            </div>
+            <div className="space-y-2.5">
+              {pillarGoals.slice(0, 4).map((goal) => {
+                const meta = PILLAR_META[goal.pillar];
+                const GoalIcon = getPillarIcon(goal.pillar);
+                return (
+                  <div key={goal.id} className="rounded-2xl bg-slate-900/70 border border-slate-800 p-3 flex items-center gap-3 relative overflow-hidden">
+                    <div className="absolute left-0 top-0 bottom-0 w-1" style={{ backgroundColor: meta.accent }} />
+                    <div className="w-9 h-9 rounded-xl border flex items-center justify-center shrink-0" style={{ backgroundColor: `${meta.accent}14`, borderColor: `${meta.accent}28`, color: meta.accent }}>
+                      <GoalIcon className="w-4 h-4" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <h4 className="text-xs font-black truncate">{goal.title}</h4>
+                      <p className="text-[10px] text-slate-400 font-bold mt-0.5 truncate">{goal.target || goal.desc}</p>
+                    </div>
+                    <span className="text-[9px] font-black uppercase tracking-wider px-2 py-1 rounded-lg border" style={{ color: meta.accent, borderColor: `${meta.accent}24`, backgroundColor: `${meta.accent}10` }}>
+                      {goal.pillar}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
         {/* Upcoming Routines Section */}
         <div>
           <div className="flex justify-between items-center mb-3 select-none">
             <h3 className="text-sm font-bold text-[#0F172A] uppercase tracking-wider">Upcoming Routines</h3>
-            <button 
-              onClick={() => setTab('today')}
-              className="text-xs font-bold text-emerald-500 hover:text-emerald-600 transition"
-            >
+            <button onClick={() => setTab('today')} className="text-xs font-bold text-emerald-500 hover:text-emerald-600 transition">
               View Day
             </button>
           </div>
 
           <div className="grid grid-cols-2 gap-3">
             {[
-              { id: 'Morning', title: 'Morning', time: '6:00 AM', color: 'from-amber-400 to-amber-500/10' },
-              { id: 'Afternoon', title: 'Afternoon', time: '12:00 PM', color: 'from-blue-400 to-blue-500/10' },
-              { id: 'Evening', title: 'Evening', time: '5:00 PM', color: 'from-indigo-400 to-indigo-500/10' },
-              { id: 'Night', title: 'Night', time: '9:00 PM', color: 'from-purple-400 to-purple-500/10' },
+              { id: 'Morning', title: 'Morning', time: '6:00 AM' },
+              { id: 'Afternoon', title: 'Afternoon', time: '12:00 PM' },
+              { id: 'Evening', title: 'Evening', time: '5:00 PM' },
+              { id: 'Night', title: 'Night', time: '9:00 PM' },
             ].map((block) => {
-              const count = routines.filter(r => r.timeBlock === block.id).length || 2;
+              const count = routines.filter(r => r.timeBlock === block.id).length;
               return (
                 <div
                   key={block.id}
@@ -870,7 +935,7 @@ export default function HomeScreen({
                   </div>
                   <div className="mt-4 flex justify-between items-center">
                     <span className="text-[9px] font-extrabold text-emerald-500 bg-emerald-50 px-2 py-0.5 rounded-full">
-                      {count} routines
+                      {count} routine{count === 1 ? '' : 's'}
                     </span>
                     <ChevronRight className="w-3.5 h-3.5 text-gray-300" />
                   </div>

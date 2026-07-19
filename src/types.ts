@@ -1,5 +1,34 @@
 export type Category = 'Fitness' | 'Nutrition' | 'Career' | 'Recovery' | 'Mind';
 
+export interface NutritionTargets {
+  protein: number;
+  carbs: number;
+  fats: number;
+  fiber: number;
+  calories: number;
+}
+
+export interface PillarGoal {
+  id: string;
+  title: string;
+  pillar: Category;
+  desc: string;
+  target?: string;
+  createdAt: string;
+}
+
+export interface LoggedFood {
+  id: string;
+  name: string;
+  protein: number;
+  carbs: number;
+  fats: number;
+  fiber: number;
+  calories: number;
+  timestamp: string;
+  date?: string;
+}
+
 export type HabitType = 'Count' | 'Timer';
 
 export interface HabitLogEntry {

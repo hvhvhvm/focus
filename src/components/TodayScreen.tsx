@@ -28,226 +28,218 @@ import {
   X,
   Play
 } from 'lucide-react';
-import { Habit, Routine, Category } from '../types';
+import { Habit, Routine, Category, PillarGoal } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
 import RoutineDetailsModal from './RoutineDetailsModal';
+import { PILLAR_META, mapCategoryToPillar as mapToSharedPillar } from '../lib/pillars';
 
 // Helper to get styled indicators, background and text colors, and lucide icons
 const getCategoryMeta = (category: string) => {
-  const cat = category.toLowerCase();
-  
-  // Exact or prefix matches for the 5 Pillars
-  if (cat === 'fitness' || cat.startsWith('fit')) {
-    return {
-      icon: '🏃',
-      lucideIcon: Dumbbell,
-      bg: 'bg-emerald-50/70',
-      border: 'border-emerald-100',
-      text: 'text-emerald-600',
-      accent: 'border-l-4 border-l-emerald-500',
-      accentBg: 'bg-emerald-500',
-      accentColor: '#10B981',
-      ring: 'ring-emerald-500/10',
-      label: 'Fitness',
-    };
-  }
-  if (cat === 'nutrition' || cat.startsWith('nutri') || cat.startsWith('diet') || cat.startsWith('food') || cat.startsWith('protein')) {
-    return {
-      icon: '🥗',
-      lucideIcon: Apple,
-      bg: 'bg-rose-50/70',
-      border: 'border-rose-100',
-      text: 'text-rose-600',
-      accent: 'border-l-4 border-l-rose-500',
-      accentBg: 'bg-rose-500',
-      accentColor: '#F43F5E',
-      ring: 'ring-rose-500/10',
-      label: 'Nutrition',
-    };
-  }
-  if (cat === 'career' || cat.startsWith('work') || cat.startsWith('productiv') || cat.startsWith('coding') || cat.startsWith('study')) {
-    return {
-      icon: '💻',
-      lucideIcon: Briefcase,
-      bg: 'bg-blue-50/70',
-      border: 'border-blue-100',
-      text: 'text-blue-600',
-      accent: 'border-l-4 border-l-blue-500',
-      accentBg: 'bg-blue-500',
-      accentColor: '#3B82F6',
-      ring: 'ring-blue-500/10',
-      label: 'Career',
-    };
-  }
-  if (cat === 'recovery' || cat.startsWith('recov') || cat.startsWith('sleep') || cat.startsWith('relax') || cat.startsWith('rest') || cat.startsWith('social')) {
-    return {
-      icon: '😴',
-      lucideIcon: Moon,
-      bg: 'bg-indigo-50/70',
-      border: 'border-indigo-100',
-      text: 'text-indigo-600',
-      accent: 'border-l-4 border-l-indigo-500',
-      accentBg: 'bg-indigo-500',
-      accentColor: '#6366F1',
-      ring: 'ring-indigo-500/10',
-      label: 'Recovery',
-    };
-  }
-  if (cat === 'mind' || cat.startsWith('mind') || cat.startsWith('meditat') || cat.startsWith('calm') || cat.startsWith('zen')) {
-    return {
-      icon: '🧘',
-      lucideIcon: Brain,
-      bg: 'bg-purple-50/70',
-      border: 'border-purple-100',
-      text: 'text-purple-600',
-      accent: 'border-l-4 border-l-purple-500',
-      accentBg: 'bg-purple-500',
-      accentColor: '#8B5CF6',
-      ring: 'ring-purple-500/10',
-      label: 'Mind',
-    };
-  }
+  const pillar = mapToSharedPillar(category || 'Mind');
+  const meta = PILLAR_META[pillar];
+  const lucideIcon = pillar === 'Fitness'
+    ? Dumbbell
+    : pillar === 'Nutrition'
+      ? Apple
+      : pillar === 'Career'
+        ? Briefcase
+        : pillar === 'Recovery'
+          ? Moon
+          : Brain;
 
-  // Fallbacks for sub-keywords:
-  if (cat.includes('fit') || cat.includes('gym') || cat.includes('workout') || cat.includes('run') || cat.includes('sport') || cat.includes('jump')) {
-    return {
-      icon: '🏃',
-      lucideIcon: Dumbbell,
-      bg: 'bg-emerald-50/70',
-      border: 'border-emerald-100',
-      text: 'text-emerald-600',
-      accent: 'border-l-4 border-l-emerald-500',
-      accentBg: 'bg-emerald-500',
-      accentColor: '#10B981',
-      ring: 'ring-emerald-500/10',
-      label: 'Fitness',
-    };
-  }
-  if (cat.includes('read') || cat.includes('book') || cat.includes('academic') || cat.includes('learn')) {
-    return {
-      icon: '📚',
-      lucideIcon: BookOpen,
-      bg: 'bg-sky-50/70',
-      border: 'border-sky-100',
-      text: 'text-sky-600',
-      accent: 'border-l-4 border-l-sky-500',
-      accentBg: 'bg-sky-500',
-      accentColor: '#0EA5E9',
-      ring: 'ring-sky-500/10',
-      label: 'Career',
-    };
-  }
-  if (cat.includes('diet') || cat.includes('nutri') || cat.includes('food') || cat.includes('protein') || cat.includes('eat') || cat.includes('salad')) {
-    return {
-      icon: '🥗',
-      lucideIcon: Apple,
-      bg: 'bg-rose-50/70',
-      border: 'border-rose-100',
-      text: 'text-rose-600',
-      accent: 'border-l-4 border-l-rose-500',
-      accentBg: 'bg-rose-500',
-      accentColor: '#F43F5E',
-      ring: 'ring-rose-500/10',
-      label: 'Nutrition',
-    };
-  }
-  if (cat.includes('skill') || cat.includes('target') || cat.includes('focus') || cat.includes('goal')) {
-    return {
-      icon: '🎯',
-      lucideIcon: Target,
-      bg: 'bg-amber-50/70',
-      border: 'border-amber-100',
-      text: 'text-amber-600',
-      accent: 'border-l-4 border-l-amber-500',
-      accentBg: 'bg-amber-500',
-      accentColor: '#F59E0B',
-      ring: 'ring-amber-500/10',
-      label: 'Mind',
-    };
-  }
-  if (cat.includes('mindset') || cat.includes('meditat') || cat.includes('calm') || cat.includes('zen') || cat.includes('spirit') || cat.includes('affirm') || cat.includes('mind')) {
-    return {
-      icon: '🧘',
-      lucideIcon: Brain,
-      bg: 'bg-purple-50/70',
-      border: 'border-purple-100',
-      text: 'text-purple-600',
-      accent: 'border-l-4 border-l-purple-500',
-      accentBg: 'bg-purple-500',
-      accentColor: '#8B5CF6',
-      ring: 'ring-purple-500/10',
-      label: 'Mind',
-    };
-  }
-  if (cat.includes('rest') || cat.includes('sleep') || cat.includes('relax') || cat.includes('bed')) {
-    return {
-      icon: '😴',
-      lucideIcon: Moon,
-      bg: 'bg-indigo-50/70',
-      border: 'border-indigo-100',
-      text: 'text-indigo-600',
-      accent: 'border-l-4 border-l-indigo-500',
-      accentBg: 'bg-indigo-500',
-      accentColor: '#6366F1',
-      ring: 'ring-indigo-500/10',
-      label: 'Recovery',
-    };
-  }
-  if (cat.includes('productiv') || cat.includes('work') || cat.includes('career') || cat.includes('task')) {
-    return {
-      icon: '💼',
-      lucideIcon: Briefcase,
-      bg: 'bg-blue-50/70',
-      border: 'border-blue-100',
-      text: 'text-blue-600',
-      accent: 'border-l-4 border-l-blue-500',
-      accentBg: 'bg-blue-500',
-      accentColor: '#3B82F6',
-      ring: 'ring-blue-500/10',
-      label: 'Career',
-    };
-  }
-  if (cat.includes('health') || cat.includes('heart') || cat.includes('body')) {
-    return {
-      icon: '❤️',
-      lucideIcon: Heart,
-      bg: 'bg-red-50/70',
-      border: 'border-red-100',
-      text: 'text-red-600',
-      accent: 'border-l-4 border-l-red-500',
-      accentBg: 'bg-red-500',
-      accentColor: '#EF4444',
-      ring: 'ring-red-500/10',
-      label: 'Recovery',
-    };
-  }
-  if (cat.includes('social') || cat.includes('friend') || cat.includes('family')) {
-    return {
-      icon: '👥',
-      lucideIcon: Users,
-      bg: 'bg-teal-50/70',
-      border: 'border-teal-100',
-      text: 'text-teal-600',
-      accent: 'border-l-4 border-l-teal-500',
-      accentBg: 'bg-teal-500',
-      accentColor: '#14B8A6',
-      ring: 'ring-teal-500/10',
-      label: 'Recovery',
-    };
-  }
   return {
-    icon: '✨',
-    lucideIcon: Sparkles,
-    bg: 'bg-slate-50/70',
-    border: 'border-slate-100',
-    text: 'text-slate-600',
-    accent: 'border-l-4 border-l-slate-400',
-    accentBg: 'bg-slate-400',
-    accentColor: '#64748B',
-    ring: 'ring-slate-500/10',
-    label: 'Mind',
+    icon: pillar,
+    lucideIcon,
+    bg: `${meta.accent}12`,
+    border: `${meta.accent}28`,
+    text: meta.text,
+    accent: `border-l-4`,
+    accentBg: meta.soft,
+    accentColor: meta.accent,
+    ring: meta.ring,
+    label: pillar,
   };
 };
+const getBlockIcon = (tb?: string) => {
+  switch (tb) {
+    case 'Morning': return '☀️';
+    case 'Afternoon': return '🌤️';
+    case 'Evening': return '🌇';
+    case 'Night': return '🌙';
+    default: return '🔄';
+  }
+};
+
+// ─── SHARED ROW COMPONENTS ──────────────────────────────────────────────────
+// Used by BOTH the "By Time" and "By Pillar" views so a habit/routine looks and
+// behaves identically no matter which grouping you're looking at it through.
+
+interface HabitRowProps {
+  habit: Habit;
+  selectedDate: string;
+  onLogHabit: (id: string, value: number) => Promise<void>;
+}
+
+function HabitRow({ habit, selectedDate, onLogHabit }: HabitRowProps) {
+  const val = habit.history[selectedDate] || 0;
+  const isDone = val >= habit.target;
+  const pct = habit.target > 0 ? Math.min(100, Math.round((val / habit.target) * 100)) : 0;
+  const hMeta = getCategoryMeta(habit.category);
+  const IconComponent = hMeta.lucideIcon;
+
+  // FIX: one-tap complete — a single tap fills the habit to target in one shot
+  // (or, if already complete, undoes it back to 0). No incremental taps needed.
+  const handleTap = () => onLogHabit(habit.id, isDone ? -habit.target : (habit.target - val));
+
+  return (
+    <div
+      onClick={handleTap}
+      className="group bg-white rounded-2xl p-2 sm:p-3 border border-slate-200/60 hover:border-slate-300 transition-all duration-300 flex items-center justify-between gap-2 sm:gap-3 relative overflow-hidden select-none cursor-pointer"
+    >
+      <div
+        className="absolute left-0 top-0 bottom-0 w-1.5 transition-all duration-300"
+        style={{ backgroundColor: isDone ? '#10b981' : hMeta.accentColor }}
+      />
+
+      <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1 pl-1.5">
+        <div
+          className="w-8 h-8 sm:w-10 sm:h-10 rounded-full flex items-center justify-center shrink-0 border transition-all duration-300"
+          style={{
+            backgroundColor: isDone ? '#10b98110' : `${hMeta.bg}`,
+            borderColor: isDone ? '#10b98125' : `${hMeta.border}`,
+            color: isDone ? '#10b981' : hMeta.accentColor,
+          }}
+        >
+          <IconComponent className="w-4 h-4 sm:w-4.5 sm:h-4.5" />
+        </div>
+
+        <div className="min-w-0 flex-1">
+          <h4 className={`text-sm sm:text-base font-bold truncate leading-tight tracking-tight ${isDone ? 'line-through text-gray-400' : 'text-[#0F172A]'}`}>
+            {habit.name}
+          </h4>
+
+          <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+            <span
+              className="text-[10px] sm:text-[11px] font-extrabold tracking-wide leading-none"
+              style={{ color: isDone ? '#10b981' : hMeta.accentColor }}
+            >
+              {hMeta.label}
+            </span>
+
+            {habit.timeBlock && (
+              <span className="w-5 h-5 rounded flex items-center justify-center border border-slate-100 bg-slate-50/50 leading-none shrink-0">
+                <span className="text-[11px]">{getBlockIcon(habit.timeBlock)}</span>
+              </span>
+            )}
+          </div>
+        </div>
+
+        <div className="flex flex-col items-start shrink-0 w-14 sm:w-16">
+          <div className="flex items-baseline justify-between w-full">
+            <span className="text-xs font-black font-mono leading-none" style={{ color: isDone ? '#10b981' : hMeta.accentColor }}>
+              {val}/{habit.target}
+            </span>
+            <span className="text-[10px] font-mono font-bold text-slate-400 leading-none">
+              {pct}%
+            </span>
+          </div>
+          <span className="text-[9px] text-slate-500 font-bold uppercase tracking-wider mt-0.5 leading-none">
+            {habit.unit || 'reps'}
+          </span>
+
+          <div className="w-full bg-slate-100 h-1.5 rounded-full mt-1.5 overflow-hidden">
+            <div
+              className="h-full rounded-full transition-all duration-300"
+              style={{ width: `${pct}%`, backgroundColor: isDone ? '#10b981' : hMeta.accentColor }}
+            />
+          </div>
+        </div>
+      </div>
+
+      <button
+        onClick={(e) => { e.stopPropagation(); handleTap(); }}
+        aria-label={isDone ? `Undo ${habit.name}` : `Complete ${habit.name}`}
+        className={`w-8 h-8 sm:w-9 sm:h-9 rounded-full flex items-center justify-center border transition-all duration-350 relative shrink-0 cursor-pointer ${
+          isDone
+            ? 'bg-emerald-500/10 border-emerald-500 text-emerald-500 shadow-xs active:scale-95'
+            : 'border-slate-200 text-transparent hover:border-emerald-500 hover:text-emerald-500 bg-slate-50/40 active:scale-95'
+        }`}
+      >
+        {isDone ? (
+          <Check className="w-4 h-4 stroke-[3px]" />
+        ) : (
+          <div className="w-5 h-5 rounded-full border border-slate-300/80 group-hover:border-slate-400 transition-all" />
+        )}
+      </button>
+    </div>
+  );
+}
+
+interface RoutineRowProps {
+  routine: Routine;
+  habits: Habit[];
+  selectedDate: string;
+  badgeLabel: string;
+  onOpen: () => void;
+}
+
+function RoutineRow({ routine, habits, selectedDate, badgeLabel, onOpen }: RoutineRowProps) {
+  const routineHabits = habits.filter(h => routine.habitIds.includes(h.id));
+  const rCompletedCount = routineHabits.filter(h => (h.history[selectedDate] || 0) >= h.target).length;
+  const rTotalCount = routineHabits.length;
+  const firstHabit = routineHabits[0];
+  const rMeta = firstHabit ? getCategoryMeta(firstHabit.category) : getCategoryMeta('Fitness');
+  const IconComponent = rMeta.lucideIcon;
+  const routineProgressPercent = rTotalCount > 0 ? Math.round((rCompletedCount / rTotalCount) * 100) : 0;
+
+  return (
+    <div
+      onClick={onOpen}
+      className="group bg-white rounded-2xl p-4 border border-slate-100 hover:border-slate-200/80 shadow-xs hover:shadow-sm transition-all duration-300 flex flex-col sm:flex-row sm:items-center justify-between gap-4 cursor-pointer border-l-[6px] border-l-emerald-500 relative overflow-hidden"
+    >
+      <div className="flex items-center gap-3.5 min-w-0 shrink-0 sm:w-1/3">
+        <div className="w-10 h-10 rounded-full bg-emerald-50 border border-emerald-100/60 text-emerald-500 flex items-center justify-center shrink-0">
+          <IconComponent className="w-4.5 h-4.5" />
+        </div>
+        <div className="min-w-0">
+          <h4 className="text-xs sm:text-sm font-black text-[#0F172A] leading-snug group-hover:text-emerald-600 transition-colors truncate">
+            {routine.name}
+          </h4>
+          <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+            <span className="text-[8px] font-extrabold tracking-widest bg-emerald-50 border border-emerald-100/60 text-emerald-600 px-1.5 py-0.5 rounded-md uppercase">
+              {badgeLabel}
+            </span>
+            <span className="text-[9px] text-gray-400 font-bold whitespace-nowrap">
+              {rTotalCount} tasks
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <div className="flex-1 flex items-center gap-3.5 min-w-0">
+        <div className="flex-1 bg-slate-100 h-1.5 rounded-full overflow-hidden relative">
+          <div className="bg-emerald-500 h-full rounded-full transition-all duration-500" style={{ width: `${routineProgressPercent}%` }} />
+        </div>
+        <div className="text-right shrink-0 flex items-baseline gap-1">
+          <span className="text-xs font-black text-emerald-600 font-mono">
+            {rCompletedCount}/{rTotalCount}
+          </span>
+          <span className="text-[9px] text-gray-400 font-semibold">
+            ({routineProgressPercent}%)
+          </span>
+        </div>
+      </div>
+
+      <div className="flex items-center justify-between sm:justify-end gap-3.5 shrink-0 pt-2 sm:pt-0 border-t border-slate-50 sm:border-0">
+        <div className="bg-[#FFF9DB] border border-[#FFE066] text-[#E08A00] px-2.5 py-1 rounded-xl text-[10px] font-extrabold tracking-wide flex items-center gap-1 shadow-xs">
+          <Zap className="w-3 h-3 fill-[#F59E0B] stroke-none" />
+          <span>+{routine.points} XP</span>
+        </div>
+        <ChevronRight className="w-4 h-4 text-gray-300 group-hover:text-gray-550 group-hover:translate-x-0.5 transition-all hidden sm:block" />
+      </div>
+    </div>
+  );
+}
 
 interface TodayScreenProps {
   habits: Habit[];
@@ -272,6 +264,7 @@ interface TodayScreenProps {
     calories: number;
   };
   onRefresh?: () => Promise<void>;
+  pillarGoals?: PillarGoal[];
 }
 
 export default function TodayScreen({
@@ -304,6 +297,16 @@ export default function TodayScreen({
     'Anytime': false,
   });
 
+  // FIX: By Pillar now expands/collapses per-pillar, same interaction pattern as By Time
+  const [expandedPillars, setExpandedPillars] = useState<{ [key: string]: boolean }>({
+    Fitness: true,
+    Nutrition: true,
+    Career: false,
+    Recovery: false,
+    Mind: false,
+  });
+  const togglePillar = (name: string) => setExpandedPillars(prev => ({ ...prev, [name]: !prev[name] }));
+
   const [activeRoutineDetails, setActiveRoutineDetails] = useState<Routine | null>(null);
 
   // Generate week dates centered on selectedDate or today
@@ -328,7 +331,7 @@ export default function TodayScreen({
 
   // Categories helper mapping to pillars
   const mapCategoryToPillar = (category: string): 'Fitness' | 'Nutrition' | 'Career' | 'Recovery' | 'Mind' => {
-    const cat = category.toLowerCase();
+    const cat = (category || '').toLowerCase();
     if (cat === 'fitness') return 'Fitness';
     if (cat === 'nutrition' || cat.includes('diet')) return 'Nutrition';
     if (cat === 'career') return 'Career';
@@ -342,6 +345,16 @@ export default function TodayScreen({
     return 'Mind';
   };
 
+  // FIX: derive a routine's pillar from the majority category of the habits it
+  // actually contains, so routines can be attributed to a pillar too.
+  const getRoutineCategory = (routine: Routine): string => {
+    const rHabits = habits.filter(h => routine.habitIds.includes(h.id));
+    if (rHabits.length === 0) return 'Mind';
+    const counts: Record<string, number> = {};
+    rHabits.forEach(h => { counts[h.category] = (counts[h.category] || 0) + 1; });
+    return Object.entries(counts).sort((a, b) => b[1] - a[1])[0][0];
+  };
+
   // Compute stats for selected day
   const routineHabitIds = new Set(routines.flatMap(r => r.habitIds));
   const standaloneHabits = habits.filter(h => !routineHabitIds.has(h.id));
@@ -349,7 +362,7 @@ export default function TodayScreen({
   const totalTasks = habits.length;
   const completedTasks = habits.filter(h => (h.history[selectedDate] || 0) >= h.target).length;
   const tasksLeft = Math.max(0, totalTasks - completedTasks);
-  const todayScore = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 86;
+  const todayScore = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
 
   // Day streak
   const dayStreak = currentUser?.consecutive_locked_in_streak !== undefined ? currentUser.consecutive_locked_in_streak : 0;
@@ -386,30 +399,39 @@ export default function TodayScreen({
     }
   };
 
-  const getPillarColor = (pillar: string) => {
-    switch (pillar) {
-      case 'Fitness': return 'text-emerald-500 bg-emerald-50 border-emerald-200';
-      case 'Nutrition': return 'text-amber-500 bg-amber-50 border-amber-200';
-      case 'Career': return 'text-blue-500 bg-blue-50 border-blue-200';
-      case 'Recovery': return 'text-purple-500 bg-purple-50 border-purple-200';
-      default: return 'text-rose-500 bg-rose-50 border-rose-200';
-    }
+  const getPillarColor = (pillar: 'Fitness' | 'Nutrition' | 'Career' | 'Recovery' | 'Mind') => {
+    const meta = PILLAR_META[pillar];
+    return `${meta.text} ${meta.soft} ${meta.border}`;
   };
 
+  // FIX: pillar items now include BOTH standalone habits and routines (grouped
+  // by the routine's derived majority category), matching HomeScreen's logic.
+  const getPillarItems = (pillar: 'Fitness' | 'Nutrition' | 'Career' | 'Recovery' | 'Mind') => {
+    const pHabits = standaloneHabits.filter(h => mapCategoryToPillar(h.category) === pillar);
+    const pRoutines = routines.filter(r => mapCategoryToPillar(getRoutineCategory(r)) === pillar);
+    return { pHabits, pRoutines };
+  };
+
+  // FIX: honest completion stats — no more fake baseline numbers (91/78/84/88/80)
+  // when a pillar has no items. Blends habit + routine completion ratios.
   const getPillarProgress = (pillar: 'Fitness' | 'Nutrition' | 'Career' | 'Recovery' | 'Mind') => {
-    const pHabits = habits.filter(h => mapCategoryToPillar(h.category) === pillar);
-    if (pHabits.length === 0) {
-      if (pillar === 'Fitness') return { ratio: '3/3', pct: 91 };
-      if (pillar === 'Nutrition') return { ratio: '3/5', pct: 78 };
-      if (pillar === 'Career') return { ratio: '2/3', pct: 84 };
-      if (pillar === 'Recovery') return { ratio: '2/2', pct: 88 };
-      return { ratio: '3/5', pct: 80 };
-    }
-    const completed = pHabits.filter(h => (h.history[selectedDate] || 0) >= h.target).length;
-    return {
-      ratio: `${completed}/${pHabits.length}`,
-      pct: Math.round((completed / pHabits.length) * 100)
-    };
+    const { pHabits, pRoutines } = getPillarItems(pillar);
+
+    const habitRatios = pHabits.map(h => {
+      const v = h.history[selectedDate] || 0;
+      return h.target > 0 ? Math.min(1, v / h.target) : 0;
+    });
+    const routineRatios = pRoutines.map(r => {
+      const rHabits = habits.filter(h => r.habitIds.includes(h.id));
+      const completed = rHabits.filter(h => (h.history[selectedDate] || 0) >= h.target).length;
+      return rHabits.length > 0 ? completed / rHabits.length : 0;
+    });
+
+    const allRatios = [...habitRatios, ...routineRatios];
+    const pct = allRatios.length > 0 ? Math.round((allRatios.reduce((a, b) => a + b, 0) / allRatios.length) * 100) : 0;
+    const completedItems = habitRatios.filter(r => r >= 1).length + routineRatios.filter(r => r >= 1).length;
+
+    return { pct, ratio: `${completedItems}/${allRatios.length}`, totalItems: allRatios.length };
   };
 
   const [finishedLoading, setFinishedLoading] = useState(false);
@@ -417,7 +439,7 @@ export default function TodayScreen({
     setFinishedLoading(true);
     setTimeout(() => {
       setFinishedLoading(false);
-      alert(`🎉 DAY ${currentDay} LOCKED IN!\nAwesome job, Charan! You earned +50 streak points. Keep building momentum!`);
+      alert(`🎉 DAY ${currentDay} LOCKED IN!\nAwesome job! Keep building momentum!`);
     }, 1200);
   };
 
@@ -482,8 +504,8 @@ export default function TodayScreen({
           <span className="text-sm font-black text-orange-500 mt-1 block">{tasksLeft} tasks</span>
         </div>
         <div className="flex-1 px-1">
-          <span className="text-[9px] font-bold text-gray-400 uppercase tracking-widest block">Goals</span>
-          <span className="text-sm font-black text-blue-500 mt-1 block">3/5 done</span>
+          <span className="text-[9px] font-bold text-gray-400 uppercase tracking-widest block">Done</span>
+          <span className="text-sm font-black text-blue-500 mt-1 block">{completedTasks}/{totalTasks}</span>
         </div>
       </div>
 
@@ -577,73 +599,16 @@ export default function TodayScreen({
                             {/* 1. Routines Section */}
                             {blockRoutines.length > 0 && (
                               <div className="space-y-3">
-                                {blockRoutines.map((routine) => {
-                                  const routineHabits = habits.filter(h => routine.habitIds.includes(h.id));
-                                  const rCompletedCount = routineHabits.filter(h => (h.history[selectedDate] || 0) >= h.target).length;
-                                  const rTotalCount = routineHabits.length;
-                                  const isRoutineCompleted = rTotalCount > 0 && rCompletedCount === rTotalCount;
-                                  
-                                  // Get category metadata of first habit or default to fitness
-                                  const firstHabit = routineHabits[0];
-                                  const rMeta = firstHabit ? getCategoryMeta(firstHabit.category) : getCategoryMeta('Fitness');
-                                  const IconComponent = rMeta.lucideIcon;
-                                  const routineProgressPercent = rTotalCount > 0 ? Math.round((rCompletedCount / rTotalCount) * 100) : 0;
-
-                                  return (
-                                    <div 
-                                      key={routine.id} 
-                                      onClick={() => setActiveRoutineDetails(routine)}
-                                      className="group bg-white rounded-2xl p-4 border border-slate-100 hover:border-slate-200/80 shadow-xs hover:shadow-sm transition-all duration-300 flex flex-col sm:flex-row sm:items-center justify-between gap-4 cursor-pointer border-l-[6px] border-l-emerald-500 relative overflow-hidden"
-                                    >
-                                      {/* Left side: Icon, Name, and Badge */}
-                                      <div className="flex items-center gap-3.5 min-w-0 shrink-0 sm:w-1/3">
-                                        <div className="w-10 h-10 rounded-full bg-emerald-50 border border-emerald-100/60 text-emerald-500 flex items-center justify-center shrink-0">
-                                          <IconComponent className="w-4.5 h-4.5" />
-                                        </div>
-                                        <div className="min-w-0">
-                                          <h4 className="text-xs sm:text-sm font-black text-[#0F172A] leading-snug group-hover:text-emerald-600 transition-colors truncate">
-                                            {routine.name}
-                                          </h4>
-                                          <div className="flex items-center gap-1.5 mt-1 flex-wrap">
-                                            <span className="text-[8px] font-extrabold tracking-widest bg-emerald-50 border border-emerald-100/60 text-emerald-600 px-1.5 py-0.5 rounded-md uppercase">
-                                              {block.id.toUpperCase()}
-                                            </span>
-                                            <span className="text-[9px] text-gray-400 font-bold whitespace-nowrap">
-                                              {rTotalCount} tasks
-                                            </span>
-                                          </div>
-                                        </div>
-                                      </div>
-
-                                      {/* Middle: Progress Bar slider */}
-                                      <div className="flex-1 flex items-center gap-3.5 min-w-0">
-                                        <div className="flex-1 bg-slate-100 h-1.5 rounded-full overflow-hidden relative">
-                                          <div 
-                                            className="bg-emerald-500 h-full rounded-full transition-all duration-500" 
-                                            style={{ width: `${routineProgressPercent}%` }}
-                                          />
-                                        </div>
-                                        <div className="text-right shrink-0 flex items-baseline gap-1">
-                                          <span className="text-xs font-black text-emerald-600 font-mono">
-                                            {rCompletedCount}/{rTotalCount}
-                                          </span>
-                                          <span className="text-[9px] text-gray-400 font-semibold">
-                                            ({routineProgressPercent}%)
-                                          </span>
-                                        </div>
-                                      </div>
-
-                                      {/* Right: points bonus tag and expansion chevron */}
-                                      <div className="flex items-center justify-between sm:justify-end gap-3.5 shrink-0 pt-2 sm:pt-0 border-t border-slate-50 sm:border-0">
-                                        <div className="bg-[#FFF9DB] border border-[#FFE066] text-[#E08A00] px-2.5 py-1 rounded-xl text-[10px] font-extrabold tracking-wide flex items-center gap-1 shadow-xs">
-                                          <Zap className="w-3 h-3 fill-[#F59E0B] stroke-none" />
-                                          <span>+{routine.points} XP</span>
-                                        </div>
-                                        <ChevronRight className="w-4 h-4 text-gray-300 group-hover:text-gray-550 group-hover:translate-x-0.5 transition-all hidden sm:block" />
-                                      </div>
-                                    </div>
-                                  );
-                                })}
+                                {blockRoutines.map((routine) => (
+                                  <RoutineRow
+                                    key={routine.id}
+                                    routine={routine}
+                                    habits={habits}
+                                    selectedDate={selectedDate}
+                                    badgeLabel={block.id.toUpperCase()}
+                                    onOpen={() => setActiveRoutineDetails(routine)}
+                                  />
+                                ))}
                               </div>
                             )}
 
@@ -658,126 +623,9 @@ export default function TodayScreen({
                                     <div className="h-px bg-slate-100 flex-1" />
                                   </div>
                                 )}
-                                {blockHabits.map((h) => {
-                                  const val = h.history[selectedDate] || 0;
-                                  const isDone = val >= h.target;
-                                  const pct = h.target > 0 ? Math.min(100, Math.round((val / h.target) * 100)) : 0;
-                                  
-                                  const hMeta = getCategoryMeta(h.category);
-                                  const IconComponent = hMeta.lucideIcon;
-
-                                  const getBlockIcon = (tb: string) => {
-                                    switch (tb) {
-                                      case 'Morning': return '☀️';
-                                      case 'Afternoon': return '🌤️';
-                                      case 'Evening': return '🌇';
-                                      case 'Night': return '🌙';
-                                      default: return '🔄';
-                                    }
-                                  };
-
-                                  return (
-                                    <div 
-                                      key={h.id} 
-                                      className="group bg-white rounded-2xl p-2 sm:p-3 border border-slate-200/60 hover:border-slate-300 transition-all duration-300 flex items-center justify-between gap-2 sm:gap-3 relative overflow-hidden select-none"
-                                    >
-                                      {/* Solid Vertical Accent Bar on the Left Edge */}
-                                      <div 
-                                        className="absolute left-0 top-0 bottom-0 w-1.5 transition-all duration-300"
-                                        style={{ backgroundColor: isDone ? '#10b981' : hMeta.accentColor }}
-                                      />
-
-                                      {/* Content Row: Align all elements horizontally on a single line */}
-                                      <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1 pl-1.5">
-                                        {/* Grab handle dots */}
-                                        <div className="text-gray-300 group-hover:text-gray-400 shrink-0 cursor-grab active:cursor-grabbing hidden sm:block">
-                                          <GripVertical className="w-3.5 h-3.5" />
-                                        </div>
-                                        
-                                        {/* Category Icon Circle */}
-                                        <div
-                                          className="w-8 h-8 sm:w-10 sm:h-10 rounded-full flex items-center justify-center shrink-0 border transition-all duration-300"
-                                          style={{
-                                            backgroundColor: isDone ? '#10b98110' : `${hMeta.bg}`,
-                                            borderColor: isDone ? '#10b98125' : `${hMeta.border}`,
-                                            color: isDone ? '#10b981' : hMeta.accentColor,
-                                          }}
-                                        >
-                                          <IconComponent className="w-4 h-4 sm:w-4.5 sm:h-4.5" />
-                                        </div>
-                                        
-                                        {/* Title & Category Tags Column (Left of Row) */}
-                                        <div className="min-w-0 flex-1">
-                                          <h4 className={`text-sm sm:text-base font-bold truncate leading-tight tracking-tight ${isDone ? 'line-through text-gray-400' : 'text-[#0F172A]'}`}>
-                                            {h.name}
-                                          </h4>
-                                          
-                                          <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
-                                            <span
-                                              className="text-[10px] sm:text-[11px] font-extrabold tracking-wide leading-none"
-                                              style={{
-                                                color: isDone ? '#10b981' : hMeta.accentColor,
-                                              }}
-                                            >
-                                              {hMeta.label}
-                                            </span>
-                                            
-                                            {h.timeBlock && (
-                                              <span className="w-5 h-5 rounded flex items-center justify-center border border-slate-100 bg-slate-50/50 leading-none shrink-0">
-                                                <span className="text-[11px]">{getBlockIcon(h.timeBlock)}</span>
-                                              </span>
-                                            )}
-                                          </div>
-                                        </div>
-
-                                        {/* Middle-Right Column: Compact Fraction Progress & Mini Bar */}
-                                        <div className="flex flex-col items-start shrink-0 w-14 sm:w-16">
-                                          <div className="flex items-baseline justify-between w-full">
-                                            <span className="text-xs font-black font-mono leading-none" style={{ color: isDone ? '#10b981' : hMeta.accentColor }}>
-                                              {val}/{h.target}
-                                            </span>
-                                            <span className="text-[10px] font-mono font-bold text-slate-400 leading-none">
-                                              {pct}%
-                                            </span>
-                                          </div>
-                                          <span className="text-[9px] text-slate-500 font-bold uppercase tracking-wider mt-0.5 leading-none">
-                                            {h.unit || 'reps'}
-                                          </span>
-                                          
-                                          {/* Compact Horizontal mini progress line track */}
-                                          <div className="w-full bg-slate-100 h-1.5 rounded-full mt-1.5 overflow-hidden">
-                                            <div
-                                              className="h-full rounded-full transition-all duration-300"
-                                              style={{
-                                                width: `${pct}%`,
-                                                backgroundColor: isDone ? '#10b981' : hMeta.accentColor,
-                                              }}
-                                            />
-                                          </div>
-                                        </div>
-                                      </div>
-                                      
-                                      {/* Right: Large elegant interactive checkbox matching screenshot exactly */}
-                                      <button
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          onLogHabit(h.id, isDone ? -h.target : (h.target - val));
-                                        }}
-                                        className={`w-8 h-8 sm:w-9 sm:h-9 rounded-full flex items-center justify-center border transition-all duration-350 relative shrink-0 cursor-pointer ${
-                                          isDone
-                                            ? 'bg-emerald-500/10 border-emerald-500 text-emerald-500 shadow-xs active:scale-95'
-                                            : 'border-slate-200 text-transparent hover:border-emerald-500 hover:text-emerald-500 bg-slate-50/40 active:scale-95'
-                                        }`}
-                                      >
-                                        {isDone ? (
-                                          <Check className="w-4 h-4 stroke-[3px]" />
-                                        ) : (
-                                          <div className="w-5 h-5 rounded-full border border-slate-300/80 group-hover:border-slate-400 transition-all" />
-                                        )}
-                                      </button>
-                                    </div>
-                                  );
-                                })}
+                                {blockHabits.map((h) => (
+                                  <HabitRow key={h.id} habit={h} selectedDate={selectedDate} onLogHabit={onLogHabit} />
+                                ))}
                               </div>
                             )}
                           </div>
@@ -790,63 +638,128 @@ export default function TodayScreen({
             })}
           </div>
         ) : (
-          // By Pillar View (Screenshot 4)
+          // By Pillar View — habits AND routines grouped under their pillar, expandable
           <div className="space-y-4">
-            {['Fitness', 'Nutrition', 'Career', 'Recovery', 'Mind'].map((pillarName) => {
-              const stats = getPillarProgress(pillarName as any);
+            {(['Fitness', 'Nutrition', 'Career', 'Recovery', 'Mind'] as const).map((pillarName) => {
+              const stats = getPillarProgress(pillarName);
+              const { pHabits, pRoutines } = getPillarItems(pillarName);
               const pColor = getPillarColor(pillarName);
               const pIcon = pillarName === 'Fitness' ? Dumbbell : pillarName === 'Nutrition' ? Apple : pillarName === 'Career' ? Briefcase : pillarName === 'Recovery' ? Moon : Heart;
               const IconComp = pIcon;
-              
+              const isExpanded = expandedPillars[pillarName];
+
               return (
-                <div key={pillarName} className="bg-white rounded-2xl p-5 border border-gray-100 shadow-sm flex items-center justify-between">
-                  <div className="flex items-center gap-3.5 flex-1 mr-4">
-                    <div className={`w-11 h-11 rounded-2xl border flex items-center justify-center shrink-0 text-lg ${pColor}`}>
-                      <IconComp className="w-5 h-5" />
-                    </div>
-                    <div className="flex-1">
-                      <div className="flex justify-between items-baseline">
-                        <h3 className="text-sm font-black text-[#0F172A]">{pillarName}</h3>
-                        <span className="text-xs font-black text-[#12B886]">{stats.pct}%</span>
+                <div key={pillarName} className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+                  <div
+                    onClick={() => togglePillar(pillarName)}
+                    className="p-5 flex items-center justify-between cursor-pointer hover:bg-slate-50/50 select-none"
+                  >
+                    <div className="flex items-center gap-3.5 flex-1 mr-4">
+                      <div className={`w-11 h-11 rounded-2xl border flex items-center justify-center shrink-0 text-lg ${pColor}`}>
+                        <IconComp className="w-5 h-5" />
                       </div>
-                      
-                      {/* Linear progress bar */}
-                      <div className="w-full bg-gray-100 h-1.5 rounded-full mt-2.5 overflow-hidden">
-                        <div className="bg-emerald-500 h-full rounded-full" style={{ width: `${stats.pct}%` }} />
+                      <div className="flex-1">
+                        <div className="flex justify-between items-baseline">
+                          <h3 className="text-sm font-black text-[#0F172A]">{pillarName}</h3>
+                          <span className="text-xs font-black text-[#12B886]">{stats.pct}%</span>
+                        </div>
+
+                        <div className="w-full bg-gray-100 h-1.5 rounded-full mt-2.5 overflow-hidden">
+                          <div className="bg-emerald-500 h-full rounded-full" style={{ width: `${stats.pct}%` }} />
+                        </div>
+                        <p className="text-[9px] text-gray-400 font-bold uppercase tracking-wider mt-1.5">
+                          {stats.totalItems > 0 ? `${stats.ratio} completed` : 'No habits or routines yet'}
+                        </p>
                       </div>
-                      <p className="text-[9px] text-gray-400 font-bold uppercase tracking-wider mt-1.5">{stats.ratio} completed</p>
                     </div>
+                    {isExpanded ? <ChevronUp className="w-4 h-4 text-gray-300 shrink-0" /> : <ChevronDown className="w-4 h-4 text-gray-300 shrink-0" />}
                   </div>
-                  <ChevronRight className="w-4 h-4 text-gray-300 shrink-0" />
+
+                  <AnimatePresence initial={false}>
+                    {isExpanded && (
+                      <motion.div
+                        initial={{ height: 0, opacity: 0 }}
+                        animate={{ height: 'auto', opacity: 1 }}
+                        exit={{ height: 0, opacity: 0 }}
+                        transition={{ duration: 0.2 }}
+                        className="border-t border-gray-50/80 bg-slate-50/30 px-5 pb-5 pt-3 space-y-3"
+                      >
+                        {stats.totalItems === 0 ? (
+                          <p className="text-[10px] text-gray-400 text-center italic py-2">
+                            No {pillarName.toLowerCase()} habits or routines yet — add one from the + button.
+                          </p>
+                        ) : (
+                          <>
+                            {pRoutines.length > 0 && (
+                              <div className="space-y-3">
+                                {pRoutines.map((routine) => (
+                                  <RoutineRow
+                                    key={routine.id}
+                                    routine={routine}
+                                    habits={habits}
+                                    selectedDate={selectedDate}
+                                    badgeLabel={routine.timeBlock?.toUpperCase() || 'ANYTIME'}
+                                    onOpen={() => setActiveRoutineDetails(routine)}
+                                  />
+                                ))}
+                              </div>
+                            )}
+                            {pHabits.length > 0 && (
+                              <div className="space-y-3">
+                                {pRoutines.length > 0 && (
+                                  <div className="flex items-center gap-2 pt-2 pb-1">
+                                    <span className="text-[9px] font-mono font-bold tracking-widest text-[#12B886] uppercase">
+                                      STANDALONE HABITS
+                                    </span>
+                                    <div className="h-px bg-slate-100 flex-1" />
+                                  </div>
+                                )}
+                                {pHabits.map((h) => (
+                                  <HabitRow key={h.id} habit={h} selectedDate={selectedDate} onLogHabit={onLogHabit} />
+                                ))}
+                              </div>
+                            )}
+                          </>
+                        )}
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
                 </div>
               );
             })}
 
-            {/* All-Day Goals Widget */}
+            {/* Diet snapshot — real macro data only (dropped the fake Water/Steps/Meditation
+                numbers that weren't backed by any tracked state) */}
             <div className="bg-white rounded-2xl p-5 border border-gray-100 shadow-sm">
-              <h3 className="text-xs font-black text-[#0F172A] uppercase tracking-widest mb-4">All-Day Goals</h3>
-              
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-xs font-black text-[#0F172A] uppercase tracking-widest">Diet Snapshot</h3>
+                <span className={`text-xs font-black text-[#12B886]`}>
+                  {targets.calories > 0 ? Math.min(100, Math.round((nutritionToday.calories / targets.calories) * 100)) : 0}%
+                </span>
+              </div>
+
               <div className="grid grid-cols-5 gap-2.5 text-center">
                 {[
-                  { label: 'Protein', value: `${nutritionToday.protein}g`, target: `${targets.protein}g`, pct: targets.protein > 0 ? Math.min(100, Math.round((nutritionToday.protein / targets.protein) * 100)) : 0, emoji: '🍗' },
-                  { label: 'Water', value: '2.1L', target: '3L', pct: 70, emoji: '💧' },
-                  { label: 'Steps', value: '5.4k', target: '8k', pct: 68, emoji: '👟' },
-                  { label: 'Calories', value: `${(nutritionToday.calories / 1000).toFixed(1)}k`, target: `${(targets.calories / 1000).toFixed(1)}k`, pct: targets.calories > 0 ? Math.min(100, Math.round((nutritionToday.calories / targets.calories) * 100)) : 0, emoji: '🔥' },
-                  { label: 'Meditation', value: '10m', target: '10m', pct: 100, emoji: '🧘' },
-                ].map((goal) => (
-                  <div key={goal.label} className="flex flex-col items-center">
-                    <div className="relative w-11 h-11 flex items-center justify-center">
-                      <svg className="w-full h-full transform -rotate-90">
-                        <circle cx="22" cy="22" r="18" className="stroke-slate-100" strokeWidth="2.5" fill="transparent" />
-                        <circle cx="22" cy="22" r="18" className="stroke-emerald-400" strokeWidth="2.5" strokeDasharray={2 * Math.PI * 18} strokeDashoffset={2 * Math.PI * 18 * (1 - goal.pct / 100)} strokeLinecap="round" fill="transparent" />
-                      </svg>
-                      <span className="absolute text-sm">{goal.emoji}</span>
+                  { label: 'Protein', value: nutritionToday.protein, target: targets.protein, unit: 'g', color: 'bg-emerald-500' },
+                  { label: 'Carbs', value: nutritionToday.carbs, target: targets.carbs, unit: 'g', color: 'bg-blue-500' },
+                  { label: 'Fats', value: nutritionToday.fats, target: targets.fats, unit: 'g', color: 'bg-orange-500' },
+                  { label: 'Fiber', value: nutritionToday.fiber, target: targets.fiber, unit: 'g', color: 'bg-purple-500' },
+                  { label: 'Calories', value: nutritionToday.calories, target: targets.calories, unit: 'kcal', color: 'bg-slate-700' },
+                ].map((macro) => {
+                  const pct = macro.target > 0 ? Math.min(100, Math.round((macro.value / macro.target) * 100)) : 0;
+                  return (
+                    <div key={macro.label} className="flex flex-col items-center">
+                      <span className="text-[8px] font-bold text-gray-400 uppercase tracking-widest">{macro.label}</span>
+                      <span className="text-xs font-extrabold text-[#0F172A] mt-1">
+                        {macro.value}<span className="text-[9px] text-gray-400 font-normal">{macro.unit}</span>
+                      </span>
+                      <span className="text-[9px] font-semibold text-gray-400">/ {macro.target}</span>
+                      <div className="w-full bg-gray-100 h-1 rounded-full mt-2 overflow-hidden">
+                        <div className={`${macro.color} h-full rounded-full`} style={{ width: `${pct}%` }} />
+                      </div>
                     </div>
-                    <span className="text-[8px] font-bold text-[#0F172A] mt-2 block truncate w-full">{goal.label}</span>
-                    <span className="text-[9px] font-black text-gray-500 mt-0.5">{goal.value}</span>
-                    <span className="text-[8px] text-gray-400 block">/ {goal.target}</span>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           </div>

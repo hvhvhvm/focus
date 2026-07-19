@@ -1,12 +1,23 @@
 import dotenv from 'dotenv';
 dotenv.config();
-import { drizzle } from 'drizzle-orm/node-postgres';
+
+import path from 'path';
+import fs from 'fs';
+import { drizzle as drizzlePg } from 'drizzle-orm/node-postgres';
+import { drizzle as drizzleSqlite } from 'drizzle-orm/better-sqlite3';
+import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 import { Pool } from 'pg';
-import * as schema from './schema.ts';
+import { usePostgres } from './dialect.ts';
+import * as pgSchema from './schema.pg.ts';
+import * as sqliteSchema from './schema.sqlite.ts';
+import { initSqliteDatabase } from './init-sqlite.ts';
+
+export { usePostgres };
+
+export type AppDb = BetterSQLite3Database<typeof sqliteSchema>;
 
 export const createPool = () => {
   if (process.env.DATABASE_URL && process.env.DATABASE_URL.length > 0) {
-    // Support single DATABASE_URL (e.g., Supabase). Allow SSL for hosted Postgres.
     return new Pool({
       connectionString: process.env.DATABASE_URL,
       ssl: { rejectUnauthorized: false },
@@ -22,10 +33,24 @@ export const createPool = () => {
   });
 };
 
-const pool = createPool();
+function createDb(): AppDb {
+  if (usePostgres) {
+    const pool = createPool();
+    pool.on('error', (err) => {
+      console.error('Unexpected error on idle SQL pool client:', err);
+    });
+    return drizzlePg(pool, { schema: pgSchema }) as unknown as AppDb;
+  }
 
-pool.on('error', (err) => {
-  console.error('Unexpected error on idle SQL pool client:', err);
-});
+  const dataDir = path.join(process.cwd(), 'data');
+  if (!fs.existsSync(dataDir)) {
+    fs.mkdirSync(dataDir, { recursive: true });
+  }
 
-export const db = drizzle(pool, { schema });
+  const dbPath = path.join(dataDir, 'habit_mountain.db');
+  const sqlite = initSqliteDatabase(dbPath);
+  console.log(`Using local SQLite database at ${dbPath}`);
+  return drizzleSqlite(sqlite, { schema: sqliteSchema });
+}
+
+export const db = createDb();
