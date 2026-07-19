@@ -3,14 +3,15 @@ dotenv.config();
 
 import path from 'path';
 import fs from 'fs';
+import { createRequire } from 'module';
 import { drizzle as drizzlePg } from 'drizzle-orm/node-postgres';
-import { drizzle as drizzleSqlite } from 'drizzle-orm/better-sqlite3';
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 import { Pool } from 'pg';
 import { usePostgres } from './dialect.ts';
 import * as pgSchema from './schema.pg.ts';
 import * as sqliteSchema from './schema.sqlite.ts';
-import { initSqliteDatabase } from './init-sqlite.ts';
+
+const require = createRequire(import.meta.url);
 
 export { usePostgres };
 
@@ -34,6 +35,12 @@ export const createPool = () => {
 };
 
 function createDb(): AppDb {
+  if (process.env.VERCEL === "1" && !process.env.DATABASE_URL && !process.env.SQL_HOST) {
+    throw new Error(
+      "DATABASE_URL must be set in Vercel environment variables. SQLite is not supported on serverless deployments."
+    );
+  }
+
   if (usePostgres) {
     const pool = createPool();
     pool.on('error', (err) => {
@@ -48,6 +55,9 @@ function createDb(): AppDb {
   }
 
   const dbPath = path.join(dataDir, 'habit_mountain.db');
+  // Lazy-load SQLite only for local development (not available on Vercel serverless)
+  const { initSqliteDatabase } = require('./init-sqlite.ts') as typeof import('./init-sqlite.ts');
+  const { drizzle: drizzleSqlite } = require('drizzle-orm/better-sqlite3') as typeof import('drizzle-orm/better-sqlite3');
   const sqlite = initSqliteDatabase(dbPath);
   console.log(`Using local SQLite database at ${dbPath}`);
   return drizzleSqlite(sqlite, { schema: sqliteSchema });
