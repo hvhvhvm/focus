@@ -75,6 +75,7 @@ const getBlockIcon = (tb?: string) => {
 // behaves identically no matter which grouping you're looking at it through.
 
 interface HabitRowProps {
+  key?: React.Key;
   habit: Habit;
   selectedDate: string;
   onLogHabit: (id: string, value: number) => Promise<void>;
@@ -176,6 +177,7 @@ function HabitRow({ habit, selectedDate, onLogHabit }: HabitRowProps) {
 }
 
 interface RoutineRowProps {
+  key?: React.Key;
   routine: Routine;
   habits: Habit[];
   selectedDate: string;

@@ -11,6 +11,7 @@ import { usePostgres } from './dialect.ts';
 import * as pgSchema from './schema.pg.ts';
 import * as sqliteSchema from './schema.sqlite.ts';
 import { initPgDatabase } from './init-pg.ts';
+import { createPgPoolConfig } from './connection.ts';
 
 const require = createRequire(import.meta.url);
 
@@ -18,37 +19,8 @@ export { usePostgres };
 
 export type AppDb = BetterSQLite3Database<typeof sqliteSchema>;
 
-function isSupabaseUrl(url: string): boolean {
-  return url.includes('supabase.com') || url.includes('supabase.co');
-}
-
 export const createPool = () => {
-  const poolOptions = {
-    max: process.env.VERCEL === '1' ? 1 : 10,
-    connectionTimeoutMillis: 15000,
-  };
-
-  if (process.env.DATABASE_URL && process.env.DATABASE_URL.length > 0) {
-    const connectionString = process.env.DATABASE_URL;
-    return new Pool({
-      connectionString,
-      ssl: isSupabaseUrl(connectionString) || connectionString.includes('sslmode=require')
-        ? { rejectUnauthorized: false }
-        : undefined,
-      ...poolOptions,
-    });
-  }
-
-  return new Pool({
-    host: process.env.SQL_HOST,
-    user: process.env.SQL_USER,
-    password: process.env.SQL_PASSWORD,
-    database: process.env.SQL_DB_NAME,
-    ssl: process.env.SQL_HOST?.includes('supabase')
-      ? { rejectUnauthorized: false }
-      : undefined,
-    ...poolOptions,
-  });
+  return new Pool(createPgPoolConfig());
 };
 
 function createSqliteDb(): AppDb {
@@ -83,3 +55,4 @@ async function createPostgresDb(): Promise<AppDb> {
 }
 
 export const db: AppDb = usePostgres ? await createPostgresDb() : createSqliteDb();
+

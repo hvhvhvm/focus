@@ -1,12 +1,17 @@
 import { defineConfig } from "drizzle-kit";
 import * as dotenv from "dotenv";
+import {
+  cleanEnvValue,
+  isSupabaseHost,
+  normalizeDatabaseUrl,
+  normalizeSqlUserForHost,
+} from "./connection.ts";
 
 dotenv.config();
 
-const usePostgres = Boolean(
-  (process.env.DATABASE_URL && process.env.DATABASE_URL.length > 0) ||
-  (process.env.SQL_HOST && process.env.SQL_HOST.length > 0)
-);
+const databaseUrl = cleanEnvValue(process.env.DATABASE_URL);
+const sqlHost = cleanEnvValue(process.env.SQL_HOST);
+const usePostgres = Boolean(databaseUrl || sqlHost);
 
 const sqliteConfig = defineConfig({
   schema: "./src/db/schema.sqlite.ts",
@@ -18,14 +23,14 @@ const sqliteConfig = defineConfig({
   verbose: true,
 });
 
-const postgresConfig = process.env.DATABASE_URL
+const postgresConfig = databaseUrl
   ? defineConfig({
       schema: "./src/db/schema.pg.ts",
       out: "./drizzle",
       dialect: "postgresql",
       schemaFilter: ["public"],
       dbCredentials: {
-        url: process.env.DATABASE_URL,
+        url: normalizeDatabaseUrl(databaseUrl),
       },
       verbose: true,
     })
@@ -35,13 +40,11 @@ const postgresConfig = process.env.DATABASE_URL
       dialect: "postgresql",
       schemaFilter: ["public"],
       dbCredentials: {
-        host: process.env.SQL_HOST!,
-        user: process.env.SQL_ADMIN_USER!,
-        password: process.env.SQL_ADMIN_PASSWORD!,
-        database: process.env.SQL_DB_NAME!,
-        ssl: process.env.SQL_HOST?.includes("supabase")
-          ? { rejectUnauthorized: false }
-          : false,
+        host: sqlHost!,
+        user: normalizeSqlUserForHost(process.env.SQL_ADMIN_USER || process.env.SQL_USER, sqlHost)!,
+        password: cleanEnvValue(process.env.SQL_ADMIN_PASSWORD || process.env.SQL_PASSWORD)!,
+        database: cleanEnvValue(process.env.SQL_DB_NAME)!,
+        ssl: isSupabaseHost(sqlHost) ? { rejectUnauthorized: false } : false,
       },
       verbose: true,
     });
