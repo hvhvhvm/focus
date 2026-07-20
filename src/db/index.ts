@@ -38,9 +38,14 @@ function createSqliteDb(): AppDb {
 }
 
 async function createPostgresDb(): Promise<AppDb> {
-  if (process.env.VERCEL === '1' && !process.env.DATABASE_URL && !process.env.SQL_HOST) {
+  if (
+    process.env.VERCEL === '1' &&
+    !process.env.SUPABASE_DB_PASSWORD &&
+    !process.env.DATABASE_URL &&
+    !process.env.SQL_HOST
+  ) {
     throw new Error(
-      'DATABASE_URL must be set in Vercel environment variables. SQLite is not supported on serverless deployments.'
+      'DATABASE_URL or SUPABASE_DB_PASSWORD must be set in Vercel environment variables. SQLite is not supported on serverless deployments.'
     );
   }
 
@@ -49,7 +54,16 @@ async function createPostgresDb(): Promise<AppDb> {
     console.error('Unexpected error on idle SQL pool client:', err);
   });
 
-  await initPgDatabase(pool);
+  try {
+    await initPgDatabase(pool);
+  } catch (err: any) {
+    if (err?.code === '28P01') {
+      throw new Error(
+        'Supabase rejected the PostgreSQL password. In Render, use the Database Password from Supabase Project Settings > Database, not the anon API key or JWT secret. If DATABASE_URL contains special characters in the password, either URL-encode the password or set SUPABASE_DB_PASSWORD instead.'
+      );
+    }
+    throw err;
+  }
   console.log('Connected to PostgreSQL.');
   return drizzlePg(pool, { schema: pgSchema }) as unknown as AppDb;
 }

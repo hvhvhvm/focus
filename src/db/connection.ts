@@ -2,6 +2,17 @@ import type { PoolConfig } from 'pg';
 
 type Env = NodeJS.ProcessEnv;
 
+type ResolvedPgConnection = PoolConfig & {
+  source: string;
+  summary: {
+    host?: string;
+    port?: string | number;
+    user?: string;
+    database?: string;
+    ssl: boolean;
+  };
+};
+
 export function cleanEnvValue(value: string | undefined): string | undefined {
   const trimmed = value?.trim();
   if (!trimmed) return undefined;
@@ -51,6 +62,14 @@ export function getSupabaseProjectRef(env: Env = process.env): string | undefine
     refFromSupabaseUrl(env.NEXT_PUBLIC_SUPABASE_URL) ||
     refFromDirectDbHost(env.SQL_HOST)
   );
+}
+
+function getSupabaseDbHost(env: Env = process.env): string | undefined {
+  const explicitHost = cleanEnvValue(env.SUPABASE_DB_HOST);
+  if (explicitHost) return explicitHost;
+
+  const projectRef = getSupabaseProjectRef(env);
+  return projectRef ? `db.${projectRef}.supabase.co` : undefined;
 }
 
 function formatSupabasePoolerError(source: string): Error {
@@ -111,25 +130,60 @@ export function normalizeDatabaseUrl(rawUrl: string, env: Env = process.env): st
   return cleanedUrl;
 }
 
-export function createPgPoolConfig(env: Env = process.env): PoolConfig {
-  const poolOptions: PoolConfig = {
-    max: env.VERCEL === '1' ? 1 : 10,
-    connectionTimeoutMillis: 15000,
-  };
+function resolveSupabasePartsConfig(env: Env = process.env): ResolvedPgConnection | undefined {
+  const password = cleanEnvValue(env.SUPABASE_DB_PASSWORD);
+  if (!password) return undefined;
 
-  const databaseUrl = cleanEnvValue(env.DATABASE_URL);
-  if (databaseUrl) {
-    const connectionString = normalizeDatabaseUrl(databaseUrl, env);
-    return {
-      connectionString,
-      ssl:
-        isSupabaseHost(new URL(connectionString).hostname) || connectionString.includes('sslmode=require')
-          ? { rejectUnauthorized: false }
-          : undefined,
-      ...poolOptions,
-    };
+  const host = getSupabaseDbHost(env);
+  const user = normalizeSqlUserForHost(cleanEnvValue(env.SUPABASE_DB_USER) || 'postgres', host, env);
+  const database = cleanEnvValue(env.SUPABASE_DB_NAME) || 'postgres';
+  const port = Number(cleanEnvValue(env.SUPABASE_DB_PORT)) || (isSupabasePoolerHost(host) ? 6543 : 5432);
+  const missing = [
+    ['SUPABASE_PROJECT_REF or SUPABASE_DB_HOST', host],
+    ['SUPABASE_DB_USER', user],
+  ]
+    .filter(([, value]) => !value)
+    .map(([name]) => name);
+
+  if (missing.length > 0) {
+    throw new Error(`Missing Supabase database environment variables: ${missing.join(', ')}.`);
   }
 
+  return {
+    source: 'SUPABASE_DB_*',
+    host,
+    port,
+    user,
+    password,
+    database,
+    ssl: { rejectUnauthorized: false },
+    summary: { host, port, user, database, ssl: true },
+  };
+}
+
+function resolveDatabaseUrlConfig(env: Env = process.env): ResolvedPgConnection | undefined {
+  const databaseUrl = cleanEnvValue(env.DATABASE_URL);
+  if (!databaseUrl) return undefined;
+
+  const connectionString = normalizeDatabaseUrl(databaseUrl, env);
+  const url = new URL(connectionString);
+  const ssl = isSupabaseHost(url.hostname) || connectionString.includes('sslmode=require');
+
+  return {
+    source: 'DATABASE_URL',
+    connectionString,
+    ssl: ssl ? { rejectUnauthorized: false } : undefined,
+    summary: {
+      host: url.hostname,
+      port: url.port || undefined,
+      user: decodeURIComponent(url.username),
+      database: url.pathname.replace(/^\//, '') || undefined,
+      ssl,
+    },
+  };
+}
+
+function resolveSqlPartsConfig(env: Env = process.env): ResolvedPgConnection {
   const host = cleanEnvValue(env.SQL_HOST);
   const user = normalizeSqlUserForHost(env.SQL_USER, host, env);
   const password = cleanEnvValue(env.SQL_PASSWORD);
@@ -147,12 +201,42 @@ export function createPgPoolConfig(env: Env = process.env): PoolConfig {
     throw new Error(`Missing PostgreSQL environment variables: ${missing.join(', ')}.`);
   }
 
+  const ssl = isSupabaseHost(host);
   return {
+    source: 'SQL_*',
     host,
     user,
     password,
     database,
-    ssl: isSupabaseHost(host) ? { rejectUnauthorized: false } : undefined,
-    ...poolOptions,
+    ssl: ssl ? { rejectUnauthorized: false } : undefined,
+    summary: { host, user, database, ssl },
   };
+}
+
+function logPgConnectionSummary(config: ResolvedPgConnection): void {
+  const summary = [
+    `source=${config.source}`,
+    `host=${config.summary.host || '(unset)'}`,
+    config.summary.port ? `port=${config.summary.port}` : undefined,
+    `database=${config.summary.database || '(unset)'}`,
+    `user=${config.summary.user || '(unset)'}`,
+    `ssl=${config.summary.ssl ? 'on' : 'off'}`,
+  ]
+    .filter(Boolean)
+    .join(' ');
+
+  console.log(`PostgreSQL connection config: ${summary}`);
+}
+
+export function createPgPoolConfig(env: Env = process.env): PoolConfig {
+  const poolOptions: PoolConfig = {
+    max: env.VERCEL === '1' ? 1 : 10,
+    connectionTimeoutMillis: 15000,
+  };
+
+  const config = resolveSupabasePartsConfig(env) || resolveDatabaseUrlConfig(env) || resolveSqlPartsConfig(env);
+  logPgConnectionSummary(config);
+
+  const { source, summary, ...poolConfig } = config;
+  return { ...poolConfig, ...poolOptions };
 }

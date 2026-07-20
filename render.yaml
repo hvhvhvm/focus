@@ -3,16 +3,26 @@ services:
     name: focus-now
     env: node
     plan: free
-    buildCommand: npm install && npm run build
+    buildCommand: npm ci && npm run build
     startCommand: npm start
     envVars:
       - key: NODE_VERSION
         value: 22.14.0
       - key: JWT_SECRET
         sync: false
-      - key: DATABASE_URL
-        sync: false
       - key: SUPABASE_PROJECT_REF
+        sync: false
+      - key: SUPABASE_DB_PASSWORD
+        sync: false
+      - key: SUPABASE_DB_HOST
+        sync: false
+      - key: SUPABASE_DB_PORT
+        value: 5432
+      - key: SUPABASE_DB_NAME
+        value: postgres
+      - key: SUPABASE_DB_USER
+        value: postgres
+      - key: DATABASE_URL
         sync: false
       - key: VITE_SUPABASE_URL
         sync: false
