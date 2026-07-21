@@ -23,7 +23,8 @@ import {
   Sunset,
   CloudSun,
   Target,
-  Brain
+  Brain,
+  Star
 } from 'lucide-react';
 import { Habit, Routine, Category, PillarGoal } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
@@ -61,6 +62,8 @@ interface HomeScreenProps {
   onOpenCreateModal: () => void;
   onRefresh?: () => Promise<void>;
   pillarGoals?: PillarGoal[];
+  focusedHabitIds?: string[];
+  onToggleFocusHabit?: (habitId: string) => void;
 }
 
 export default function HomeScreen({
@@ -80,6 +83,8 @@ export default function HomeScreen({
   onOpenCreateModal,
   onRefresh,
   pillarGoals = [],
+  focusedHabitIds = [],
+  onToggleFocusHabit,
 }: HomeScreenProps) {
   const targets = nutritionTargets || {
     protein: 150,
@@ -349,6 +354,14 @@ export default function HomeScreen({
     .sort((a, b) => b.points - a.points)
     .slice(0, 2);
 
+  // Habits pinned by user as "Today's Focus" (starred in Today screen)
+  const userPinnedHabits = standaloneHabits.filter(h => focusedHabitIds.includes(h.id));
+
+  // focusList = pinned first, then auto-priority if no pinned
+  const focusList: typeof standaloneHabits = userPinnedHabits.length > 0
+    ? userPinnedHabits
+    : importantHabits.slice(0, 5);
+
   return (
     <div className="w-full bg-[#F8F9FC] text-[#1E293B] flex flex-col font-sans pb-12 relative">
       
@@ -497,6 +510,96 @@ export default function HomeScreen({
           >
             🥗 Log Food
           </button>
+        </div>
+
+        {/* TODAY'S FOCUS CARD */}
+        <div className="bg-gradient-to-br from-amber-950/20 via-slate-900 to-slate-900 rounded-3xl p-5 border border-amber-500/30 shadow-xl relative overflow-hidden">
+          <div className="flex justify-between items-center mb-4">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-full bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400">
+                <Star className="w-4 h-4 fill-amber-400" />
+              </div>
+              <div>
+                <h3 className="text-base font-black text-white tracking-tight leading-none">Today's Focus</h3>
+                <p className="text-[9px] text-amber-400/80 font-semibold mt-1 uppercase tracking-wider">
+                  {userPinnedHabits.length > 0 ? `${userPinnedHabits.filter(h => (h.history[dateToday] || 0) >= h.target).length}/${userPinnedHabits.length} PINNED COMPLETED` : 'TOP HIGH-PRIORITY TARGETS'}
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={() => setTab('today')}
+              className="text-[10px] font-bold text-amber-400 hover:text-amber-300 transition flex items-center gap-1 bg-amber-500/10 px-2.5 py-1 rounded-full border border-amber-500/20"
+            >
+              <span>Manage Focus</span>
+              <ChevronRight className="w-3 h-3" />
+            </button>
+          </div>
+
+          <div className="space-y-2.5">
+            {focusList.length === 0 ? (
+              <p className="text-xs text-slate-400 italic text-center py-3">No focus habits marked yet. Star any habit to add it here!</p>
+            ) : (
+              focusList.map((habit) => {
+                const val = habit.history[dateToday] || 0;
+                const isCompleted = val >= habit.target;
+                const isPinned = focusedHabitIds.includes(habit.id);
+                const hMeta = getCategoryMetaForLogger(habit.category);
+                const IconComp = hMeta.lucideIcon;
+                const pct = habit.target > 0 ? Math.min(100, Math.round((val / habit.target) * 100)) : 0;
+
+                return (
+                  <div
+                    key={habit.id}
+                    className={`p-3 rounded-2xl border transition-all flex items-center justify-between gap-3 ${
+                      isCompleted ? 'bg-emerald-950/20 border-emerald-500/30' : 'bg-slate-800/60 border-slate-700/60 hover:border-amber-500/40'
+                    }`}
+                  >
+                    <div className="flex items-center gap-3 min-w-0 flex-1">
+                      <div className="w-8 h-8 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center text-amber-400 shrink-0">
+                        <IconComp className="w-4 h-4" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2">
+                          <h4 className={`text-xs font-bold truncate ${isCompleted ? 'line-through text-slate-400' : 'text-white'}`}>
+                            {habit.name}
+                          </h4>
+                          {onToggleFocusHabit && (
+                            <button
+                              type="button"
+                              onClick={() => onToggleFocusHabit(habit.id)}
+                              title={isPinned ? "Unpin from Focus" : "Pin to Focus"}
+                              className="text-amber-400 p-0.5 rounded transition hover:scale-110 active:scale-90"
+                            >
+                              <Star className={`w-3.5 h-3.5 ${isPinned ? 'fill-amber-400' : 'text-slate-500'}`} />
+                            </button>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2 mt-1">
+                          <div className="flex-1 bg-slate-900 h-1.5 rounded-full overflow-hidden">
+                            <div className="bg-amber-400 h-full rounded-full transition-all" style={{ width: `${pct}%` }} />
+                          </div>
+                          <span className="text-[9px] font-mono text-slate-400 font-bold">
+                            {val}/{habit.target} {habit.unit}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <button
+                      onClick={() => handleQuickLog(habit.id)}
+                      className={`w-8 h-8 rounded-full flex items-center justify-center border transition cursor-pointer shrink-0 ${
+                        isCompleted
+                          ? 'bg-emerald-500/20 border-emerald-500 text-emerald-400'
+                          : 'border-slate-600 text-slate-400 hover:border-amber-400 hover:text-amber-400 bg-slate-800'
+                      }`}
+                    >
+                      {isCompleted ? <Check className="w-4 h-4 stroke-[3px]" /> : <div className="w-4 h-4 rounded-full border border-slate-500" />}
+                    </button>
+                  </div>
+                );
+              })
+            )}
+          </div>
         </div>
 
         {/* Quick Habit Logger Upgraded Card */}
@@ -759,15 +862,22 @@ export default function HomeScreen({
 
         </div> {/* End Left Column */}
 
-        {/* Right Column: Today's Focus, Pillars, Routines, and Quote */}
+        {/* Right Column: Today's Focus (pinned habits), Pillars, Routines, and Quote */}
         <div className="lg:col-span-5 space-y-6">
 
-          {/* Today's Focus List */}
+          {/* TODAY FOCUS — shows user-pinned habits; fallback to top auto-priority */}
           <div className="bg-white rounded-2xl p-5 border border-gray-100 shadow-sm">
             <div className="flex justify-between items-center mb-4 select-none">
               <div>
-                <h3 className="text-sm font-black text-[#0F172A] uppercase tracking-wider">Today Focus</h3>
-                <p className="text-[10px] text-gray-400 font-bold mt-0.5">Highest-leverage actions for the next 24 hours</p>
+                <div className="flex items-center gap-2">
+                  <Star className="w-4 h-4 fill-amber-400 text-amber-400" />
+                  <h3 className="text-sm font-black text-[#0F172A] uppercase tracking-wider">Today Focus</h3>
+                </div>
+                <p className="text-[10px] text-gray-400 font-bold mt-0.5">
+                  {userPinnedHabits.length > 0
+                    ? `${userPinnedHabits.filter(h => (h.history[dateToday] || 0) >= h.target).length}/${userPinnedHabits.length} pinned completed · Star habits in Today tab`
+                    : 'Star any habit in Today tab to pin it here'}
+                </p>
               </div>
               <button onClick={() => setTab('today')} className="text-xs font-bold text-emerald-500 hover:text-emerald-600 transition">
                 View All
@@ -775,6 +885,7 @@ export default function HomeScreen({
             </div>
 
             <div className="space-y-2.5">
+              {/* Pinned routines (incomplete) */}
               {focusRoutines.map((routine) => {
                 const { completed, total } = routineProgressCount(routine);
                 const pct = total > 0 ? Math.round((completed / total) * 100) : 0;
@@ -792,50 +903,76 @@ export default function HomeScreen({
                     </div>
                     <div className="min-w-0 flex-1">
                       <h4 className="text-xs font-black text-[#0F172A] truncate">{routine.name}</h4>
-                      <p className="text-[10px] text-gray-400 font-bold mt-0.5">Routine / {completed} of {total} complete</p>
+                      <p className="text-[10px] text-gray-400 font-bold mt-0.5">Routine · {completed} of {total} complete</p>
                     </div>
                     <span className="text-xs font-black font-mono" style={{ color: rMeta.accentColor }}>{pct}%</span>
                   </button>
                 );
               })}
 
-              {importantHabits.map((habit) => {
+              {/* Pinned / auto-priority habits */}
+              {focusList.map((habit) => {
                 const progressVal = habit.history[dateToday] || 0;
                 const isCompleted = progressVal >= habit.target;
+                const isPinned = focusedHabitIds.includes(habit.id);
                 const hMeta = getCategoryMetaForLogger(habit.category);
                 const HabitIcon = hMeta.lucideIcon;
+                const pct = habit.target > 0 ? Math.min(100, Math.round((progressVal / habit.target) * 100)) : 0;
                 return (
-                  <button
+                  <div
                     key={habit.id}
-                    className="w-full bg-white rounded-2xl p-3 border border-gray-100 shadow-sm flex items-center justify-between gap-3 cursor-pointer relative overflow-hidden hover:border-gray-200 transition text-left"
-                    onClick={() => handleQuickLog(habit.id)}
+                    className={`w-full bg-white rounded-2xl p-3 border shadow-sm flex items-center justify-between gap-3 relative overflow-hidden transition text-left ${
+                      isCompleted ? 'border-emerald-200 bg-emerald-50/30' : 'border-gray-100 hover:border-amber-200'
+                    }`}
                   >
                     <div className="absolute left-0 top-0 bottom-0 w-1" style={{ backgroundColor: isCompleted ? '#10B981' : hMeta.accentColor }} />
                     <div className="flex items-center gap-3 min-w-0 flex-1">
                       <div className="w-9 h-9 rounded-xl border flex items-center justify-center shrink-0" style={{ backgroundColor: `${hMeta.accentColor}12`, borderColor: `${hMeta.accentColor}26`, color: hMeta.accentColor }}>
                         <HabitIcon className="w-4 h-4" />
                       </div>
-                      <div className="min-w-0">
-                        <h4 className={`text-xs font-black truncate ${isCompleted ? 'line-through text-gray-400' : 'text-[#0F172A]'}`}>{habit.name}</h4>
-                        <p className="text-[10px] text-gray-400 mt-0.5 font-bold">{hMeta.label} / {habit.target} {habit.unit}</p>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-1.5">
+                          <h4 className={`text-xs font-black truncate ${isCompleted ? 'line-through text-gray-400' : 'text-[#0F172A]'}`}>{habit.name}</h4>
+                          {onToggleFocusHabit && (
+                            <button
+                              type="button"
+                              onClick={() => onToggleFocusHabit(habit.id)}
+                              title={isPinned ? 'Unpin from Focus' : 'Pin to Focus'}
+                              className={`p-0.5 rounded transition hover:scale-110 active:scale-90 shrink-0 ${isPinned ? 'text-amber-400' : 'text-slate-300 hover:text-amber-400'}`}
+                            >
+                              <Star className={`w-3.5 h-3.5 ${isPinned ? 'fill-amber-400 text-amber-400' : ''}`} />
+                            </button>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2 mt-1">
+                          <div className="flex-1 bg-gray-100 h-1 rounded-full overflow-hidden">
+                            <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, backgroundColor: isCompleted ? '#10b981' : hMeta.accentColor }} />
+                          </div>
+                          <span className="text-[9px] font-mono text-gray-400 font-bold shrink-0">{progressVal}/{habit.target} {habit.unit}</span>
+                        </div>
                       </div>
                     </div>
-                    <span className={`w-7 h-7 rounded-full flex items-center justify-center border shrink-0 ${
-                      isCompleted ? 'bg-emerald-500 border-emerald-500 text-white' : 'border-gray-200 text-transparent'
-                    }`}>
+                    <button
+                      onClick={() => handleQuickLog(habit.id)}
+                      className={`w-7 h-7 rounded-full flex items-center justify-center border shrink-0 transition cursor-pointer ${
+                        isCompleted ? 'bg-emerald-500 border-emerald-500 text-white' : 'border-gray-200 text-transparent hover:border-emerald-400'
+                      }`}
+                    >
                       <Check className="w-4 h-4 stroke-[3px]" />
-                    </span>
-                  </button>
+                    </button>
+                  </div>
                 );
               })}
 
-              {focusRoutines.length === 0 && importantHabits.length === 0 && (
-                <div className="text-center py-6 text-xs text-gray-400 font-semibold bg-slate-50 rounded-2xl border border-gray-100">
-                  All clear for now. Add a focused habit from the + button.
+              {focusRoutines.length === 0 && focusList.length === 0 && (
+                <div className="text-center py-6 text-xs text-gray-400 font-semibold bg-amber-50/50 rounded-2xl border border-amber-100">
+                  <Star className="w-5 h-5 text-amber-300 mx-auto mb-2" />
+                  Go to Today tab and ⭐ star any habit to pin it here.
                 </div>
               )}
             </div>
           </div>
+
         {/* Pillars Overview Grid — now reflects real habit + routine completion */}
         <div className="bg-white rounded-2xl p-5 border border-gray-100 shadow-sm">
           <div className="flex justify-between items-center mb-4">

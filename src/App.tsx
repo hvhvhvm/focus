@@ -36,6 +36,28 @@ export default function App() {
   const [userPoints, setUserPoints] = useState<number>(0);
   const [appLoading, setAppLoading] = useState<boolean>(true);
 
+  // Focused / Pinned Habits state for "Today's Focus"
+  const [focusedHabitIds, setFocusedHabitIds] = useState<string[]>(() => {
+    const cached = localStorage.getItem('90day_focused_habit_ids');
+    if (cached) {
+      try {
+        return JSON.parse(cached);
+      } catch (e) {
+        console.error(e);
+      }
+    }
+    return [];
+  });
+
+  const handleToggleFocusHabit = (habitId: string) => {
+    setFocusedHabitIds(prev => {
+      const isFocused = prev.includes(habitId);
+      const next = isFocused ? prev.filter(id => id !== habitId) : [...prev, habitId];
+      localStorage.setItem('90day_focused_habit_ids', JSON.stringify(next));
+      return next;
+    });
+  };
+
   // Nutrition goals state
   const [nutritionTargets, setNutritionTargets] = useState<NutritionTargets>(() => {
     const cached = localStorage.getItem('90day_nutrition_targets');
@@ -452,16 +474,44 @@ export default function App() {
   };
 
   const handleDeleteHabit = async (id: string) => {
-    if (confirm('Are you sure you want to delete this habit permanently from your dashboard and routines?')) {
-      try {
-        await api.deleteHabit(id);
-        const nextHabits = await api.getHabits();
-        setHabits(nextHabits);
-        const nextRoutines = await api.getRoutines();
-        setRoutines(nextRoutines);
-      } catch (err: any) {
-        alert('Failed to delete habit: ' + err.message);
-      }
+    try {
+      await api.deleteHabit(id);
+      const nextHabits = await api.getHabits();
+      setHabits(nextHabits);
+      const nextRoutines = await api.getRoutines();
+      setRoutines(nextRoutines);
+    } catch (err: any) {
+      alert('Failed to delete habit: ' + err.message);
+    }
+  };
+
+  const handleEditHabit = async (id: string, data: Partial<any>) => {
+    try {
+      await api.updateHabit(id, data);
+      const nextHabits = await api.getHabits();
+      setHabits(nextHabits);
+    } catch (err: any) {
+      alert('Failed to update habit: ' + err.message);
+    }
+  };
+
+  const handleDeleteRoutine = async (id: string) => {
+    try {
+      await api.deleteRoutine(id);
+      const nextRoutines = await api.getRoutines();
+      setRoutines(nextRoutines);
+    } catch (err: any) {
+      alert('Failed to delete routine: ' + err.message);
+    }
+  };
+
+  const handleEditRoutine = async (id: string, data: { name: string; points: number; timeBlock: 'Morning' | 'Afternoon' | 'Evening' | 'Night' | 'Constant'; repeat: 'Daily' | 'Custom Days' | 'Today Only' }) => {
+    try {
+      await api.updateRoutine(id, data);
+      const nextRoutines = await api.getRoutines();
+      setRoutines(nextRoutines);
+    } catch (err: any) {
+      alert('Failed to update routine: ' + err.message);
     }
   };
 
@@ -576,15 +626,12 @@ export default function App() {
                 onOpenCreateModal={() => setIsPlusModalOpen(true)}
                 onRefresh={handleRefreshData}
                 pillarGoals={customGoals}
+                focusedHabitIds={focusedHabitIds}
+                onToggleFocusHabit={handleToggleFocusHabit}
               />
             )}
 
             {currentTab === 'today' && (
-              // TODO (fix #3 — by-pillar section): TodayScreen.tsx wasn't provided,
-              // so its "By Pillar" grouping couldn't be updated to group habits AND
-              // routines under each pillar. Paste TodayScreen.tsx and I'll wire it
-              // up the same way HomeScreen's Pillars Overview now works (see
-              // getPillarStats/getRoutineCategory in HomeScreen.tsx for the pattern).
               <TodayScreen
                 habits={habits}
                 routines={routines}
@@ -596,6 +643,12 @@ export default function App() {
                 nutritionTargets={nutritionTargets}
                 onRefresh={handleRefreshData}
                 pillarGoals={customGoals}
+                focusedHabitIds={focusedHabitIds}
+                onToggleFocusHabit={handleToggleFocusHabit}
+                onDeleteHabit={handleDeleteHabit}
+                onEditHabit={handleEditHabit}
+                onDeleteRoutine={handleDeleteRoutine}
+                onEditRoutine={handleEditRoutine}
               />
             )}
 
