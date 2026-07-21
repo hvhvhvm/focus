@@ -1,6 +1,15 @@
 import { Habit, Routine, UserStats } from './types';
 
-const API_BASE = '/api';
+const getApiBase = () => {
+  const envUrl = (import.meta as any).env?.VITE_API_URL || (import.meta as any).env?.VITE_BACKEND_URL;
+  if (envUrl && typeof envUrl === 'string' && envUrl.trim()) {
+    const trimmed = envUrl.trim().replace(/\/+$/, '');
+    return trimmed.endsWith('/api') ? trimmed : `${trimmed}/api`;
+  }
+  return '/api';
+};
+
+const API_BASE = getApiBase();
 
 export async function fetchWithAuth(url: string, options: RequestInit = {}, includeAuth = true) {
   const headers: HeadersInit = {

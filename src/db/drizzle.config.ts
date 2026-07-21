@@ -30,30 +30,30 @@ const supabaseHost =
   (getSupabaseProjectRef() ? `db.${getSupabaseProjectRef()}.supabase.co` : undefined);
 const supabasePort = Number(cleanEnvValue(process.env.SUPABASE_DB_PORT)) || 5432;
 
-const postgresConfig = supabaseDbPassword
+const postgresConfig = databaseUrl
   ? defineConfig({
       schema: "./src/db/schema.pg.ts",
       out: "./drizzle",
       dialect: "postgresql",
       schemaFilter: ["public"],
       dbCredentials: {
-        host: supabaseHost!,
-        port: supabasePort,
-        user: normalizeSqlUserForHost(cleanEnvValue(process.env.SUPABASE_DB_USER) || "postgres", supabaseHost)!,
-        password: supabaseDbPassword,
-        database: cleanEnvValue(process.env.SUPABASE_DB_NAME) || "postgres",
-        ssl: { rejectUnauthorized: false },
+        url: normalizeDatabaseUrl(databaseUrl),
       },
       verbose: true,
     })
-  : databaseUrl
+  : supabaseDbPassword
     ? defineConfig({
         schema: "./src/db/schema.pg.ts",
         out: "./drizzle",
         dialect: "postgresql",
         schemaFilter: ["public"],
         dbCredentials: {
-          url: normalizeDatabaseUrl(databaseUrl),
+          host: supabaseHost!,
+          port: supabasePort,
+          user: normalizeSqlUserForHost(cleanEnvValue(process.env.SUPABASE_DB_USER) || "postgres", supabaseHost)!,
+          password: supabaseDbPassword,
+          database: cleanEnvValue(process.env.SUPABASE_DB_NAME) || "postgres",
+          ssl: { rejectUnauthorized: false },
         },
         verbose: true,
       })

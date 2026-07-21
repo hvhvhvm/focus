@@ -234,7 +234,7 @@ export function createPgPoolConfig(env: Env = process.env): PoolConfig {
     connectionTimeoutMillis: 15000,
   };
 
-  const config = resolveSupabasePartsConfig(env) || resolveDatabaseUrlConfig(env) || resolveSqlPartsConfig(env);
+  const config = resolveDatabaseUrlConfig(env) || resolveSupabasePartsConfig(env) || resolveSqlPartsConfig(env);
   logPgConnectionSummary(config);
 
   const { source, summary, ...poolConfig } = config;
