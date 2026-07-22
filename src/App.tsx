@@ -24,6 +24,7 @@ import CreateModal from './components/CreateModal';
 // experience now lives inline on HomeScreen as the "Diet Log" card. We keep the
 // LoggedFood type + LogFoodModal import since logging food is still needed.
 import type { LoggedFood } from './components/DietScreen';
+import { resetWaterIntakeForDate } from './lib/dietPreferences';
 import LogFoodModal from './components/LogFoodModal';
 
 export default function App() {
@@ -127,6 +128,15 @@ export default function App() {
       localStorage.setItem('90day_logged_foods', JSON.stringify(next));
       return next;
     });
+  };
+
+  const handleClearTodayLogs = () => {
+    setLoggedFoods(prev => {
+      const next = prev.filter(f => f.date && f.date !== dateToday);
+      localStorage.setItem('90day_logged_foods', JSON.stringify(next));
+      return next;
+    });
+    resetWaterIntakeForDate(dateToday);
   };
 
   const handleUpdateNutritionTargets = (targets: NutritionTargets) => {
@@ -515,6 +525,24 @@ export default function App() {
     }
   };
 
+  const handleResetMissionDay1 = async () => {
+    setAppLoading(true);
+    try {
+      await api.syncJourney({
+        journey_start_date: dateToday,
+        locked_in_days: 0,
+        consecutive_locked_in_streak: 0,
+      });
+      await loadAllData();
+      setTab('today');
+      alert('⚡ 90-DAY MISSION RESET TO DAY 1!\nYour 90-day lock-in challenge has been restarted from today.');
+    } catch (err: any) {
+      alert('Failure resetting mission start date: ' + err.message);
+    } finally {
+      setAppLoading(false);
+    }
+  };
+
   const handleResetApp = async () => {
     if (confirm('Are you sure you want to reset all tracked points and database logs to start fresh? This drops your sqlite metrics safely.')) {
       setAppLoading(true);
@@ -620,6 +648,7 @@ export default function App() {
                 currentUser={currentUser}
                 nutritionToday={nutritionToday}
                 nutritionTargets={nutritionTargets}
+                onUpdateNutritionTargets={handleUpdateNutritionTargets}
                 todaysFoodLog={todaysFoodLog}
                 onRemoveFood={handleRemoveFood}
                 onOpenLogFood={() => setIsLogFoodModalOpen(true)}
@@ -628,6 +657,7 @@ export default function App() {
                 pillarGoals={customGoals}
                 focusedHabitIds={focusedHabitIds}
                 onToggleFocusHabit={handleToggleFocusHabit}
+                onResetDietProgress={handleClearTodayLogs}
               />
             )}
 
@@ -669,6 +699,7 @@ export default function App() {
                 routines={routines}
                 onLogout={handleLogout}
                 onReset={handleResetApp}
+                onResetDay1={handleResetMissionDay1}
               />
             )}
           </div>

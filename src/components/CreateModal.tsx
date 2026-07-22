@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { Category, NutritionTargets, PillarGoal } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
+import { getDietPreferences, saveDietPreferences } from '../lib/dietPreferences';
 
 interface CreateModalProps {
   isOpen: boolean;
@@ -67,6 +68,7 @@ export default function CreateModal({
   const [targetFats, setTargetFats] = useState(String(nutritionTargets.fats));
   const [targetFiber, setTargetFiber] = useState(String(nutritionTargets.fiber));
   const [targetCalories, setTargetCalories] = useState(String(nutritionTargets.calories));
+  const [targetWater, setTargetWater] = useState(String((getDietPreferences().waterGoalMl || 3000) / 1000));
 
   useEffect(() => {
     setTargetProtein(String(nutritionTargets.protein));
@@ -74,7 +76,8 @@ export default function CreateModal({
     setTargetFats(String(nutritionTargets.fats));
     setTargetFiber(String(nutritionTargets.fiber));
     setTargetCalories(String(nutritionTargets.calories));
-  }, [nutritionTargets]);
+    setTargetWater(String((getDietPreferences().waterGoalMl || 3000) / 1000));
+  }, [nutritionTargets, isOpen]);
 
   if (!isOpen) return null;
 

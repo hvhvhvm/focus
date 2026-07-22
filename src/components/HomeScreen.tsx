@@ -24,13 +24,17 @@ import {
   CloudSun,
   Target,
   Brain,
-  Star
+  Star,
+  X,
+  RotateCcw,
+  Droplet,
 } from 'lucide-react';
 import { Habit, Routine, Category, PillarGoal } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
 import RoutineDetailsModal from './RoutineDetailsModal';
 import type { LoggedFood } from './DietScreen';
 import { PILLAR_META } from '../lib/pillars';
+import { getDietPreferences, saveDietPreferences, getWaterIntakeForDate, addWaterIntakeForDate } from '../lib/dietPreferences';
 
 interface HomeScreenProps {
   habits: Habit[];
@@ -55,6 +59,13 @@ interface HomeScreenProps {
     fiber: number;
     calories: number;
   };
+  onUpdateNutritionTargets?: (targets: {
+    protein: number;
+    carbs: number;
+    fats: number;
+    fiber: number;
+    calories: number;
+  }) => void;
   // NEW: today's actual food entries + remove handler, so the diet card can act as a real log
   todaysFoodLog?: LoggedFood[];
   onRemoveFood?: (id: string) => void;
@@ -64,6 +75,7 @@ interface HomeScreenProps {
   pillarGoals?: PillarGoal[];
   focusedHabitIds?: string[];
   onToggleFocusHabit?: (habitId: string) => void;
+  onResetDietProgress?: () => void;
 }
 
 export default function HomeScreen({
@@ -85,7 +97,63 @@ export default function HomeScreen({
   pillarGoals = [],
   focusedHabitIds = [],
   onToggleFocusHabit,
+  onUpdateNutritionTargets,
+  onResetDietProgress,
 }: HomeScreenProps) {
+  const [editingTargetKey, setEditingTargetKey] = useState<'protein' | 'calories' | 'water' | null>(null);
+  const [targetInputValue, setTargetInputValue] = useState<string>('');
+  const [waterMlState, setWaterMlState] = useState<number>(() => getWaterIntakeForDate(dateToday));
+
+  const handleQuickWaterAddHome = (amountMl: number) => {
+    const updated = addWaterIntakeForDate(dateToday, amountMl);
+    setWaterMlState(updated);
+  };
+
+  const computeHabitStreak = (habit: Habit): number => {
+    let streak = 0;
+    const d = new Date(dateToday);
+    const valToday = habit.history[dateToday] || 0;
+    if (valToday >= habit.target) {
+      streak++;
+    }
+    d.setDate(d.getDate() - 1);
+
+    for (let i = 0; i < 30; i++) {
+      const yyyy = d.getFullYear();
+      const mm = String(d.getMonth() + 1).padStart(2, '0');
+      const dd = String(d.getDate()).padStart(2, '0');
+      const dateStr = `${yyyy}-${mm}-${dd}`;
+      const val = habit.history[dateStr] || 0;
+      if (val >= habit.target) {
+        streak++;
+        d.setDate(d.getDate() - 1);
+      } else {
+        break;
+      }
+    }
+    return streak;
+  };
+
+  const handleSaveTargetFromHome = (e: React.FormEvent) => {
+    e.preventDefault();
+    const val = Math.max(0, parseFloat(targetInputValue) || 0);
+    if (editingTargetKey === 'protein' || editingTargetKey === 'calories') {
+      if (onUpdateNutritionTargets) {
+        onUpdateNutritionTargets({
+          ...targets,
+          [editingTargetKey]: val,
+        });
+      }
+    } else if (editingTargetKey === 'water') {
+      const prefs = getDietPreferences();
+      saveDietPreferences({
+        ...prefs,
+        waterGoalMl: Math.round(val * 1000),
+      });
+    }
+    setEditingTargetKey(null);
+  };
+
   const targets = nutritionTargets || {
     protein: 150,
     carbs: 200,
@@ -360,15 +428,15 @@ export default function HomeScreen({
   // focusList = pinned first, then auto-priority if no pinned
   const focusList: typeof standaloneHabits = userPinnedHabits.length > 0
     ? userPinnedHabits
-    : importantHabits.slice(0, 5);
+    : importantHabits.slice(0, 5);  const userName = currentUser?.name || currentUser?.email?.split('@')[0] || 'Charan';
 
   return (
     <div className="w-full bg-[#F8F9FC] text-[#1E293B] flex flex-col font-sans pb-12 relative">
       
       {/* Header Bar */}
-      <div className="px-6 pt-6 pb-4 flex items-center justify-between select-none">
+      <div className="px-6 pt-6 pb-4 flex items-center justify-between select-none max-w-5xl mx-auto w-full">
         <div>
-          <p className="text-gray-400 text-xs font-semibold tracking-wide">Good morning, Charan 👋</p>
+          <p className="text-gray-400 text-xs font-semibold tracking-wide">Good morning, {userName} 👋</p>
           <h1 className="text-2xl md:text-3xl font-extrabold text-[#0F172A] tracking-tight mt-0.5">Let's win today.</h1>
         </div>
         <div className="relative cursor-pointer active:scale-95 transition-transform">
@@ -379,16 +447,12 @@ export default function HomeScreen({
         </div>
       </div>
 
-      {/* Main Responsive Grid Container */}
-      <div className="flex-1 px-6">
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-          
-          {/* Left Column: Core Tracking, Stats, Pillars, and Routines */}
-          <div className="lg:col-span-7 space-y-6">
+      {/* Main Single Column Container matching user's exact requested layout */}
+      <div className="flex-1 px-4 sm:px-6 max-w-5xl mx-auto w-full space-y-6">
         
-        {/* 90-Day Lock-In Hero Card */}
+        {/* 1. HERO SECTION */}
         <div className="bg-gradient-to-br from-[#1E293B] via-[#0F172A] to-[#1E293B] rounded-3xl p-6 text-white shadow-xl relative overflow-hidden border border-slate-800">
-          <div className="absolute top-0 right-0 w-32 h-32 bg-emerald-500/10 rounded-full blur-2xl" />
+          <div className="absolute top-0 right-0 w-32 h-32 bg-emerald-500/10 rounded-full blur-2xl pointer-events-none" />
           
           <div className="flex justify-between items-start">
             <div>
@@ -398,13 +462,13 @@ export default function HomeScreen({
               <h2 className="text-3xl font-black mt-3 tracking-tight font-sans">
                 Day {currentDay} <span className="text-slate-400 text-xl font-normal">/ 90</span>
               </h2>
-              <p className="text-xs text-slate-300 mt-2 font-medium max-w-[180px] leading-relaxed">
+              <p className="text-xs text-slate-300 mt-2 font-medium max-w-[220px] leading-relaxed">
                 You're building the life you always wanted.
               </p>
             </div>
 
             {/* Circular Progress Indicator */}
-            <div className="relative w-24 h-24 flex items-center justify-center">
+            <div className="relative w-24 h-24 flex items-center justify-center shrink-0">
               <svg className="w-full h-full transform -rotate-90">
                 <circle cx="48" cy="48" r="38" className="stroke-slate-800" strokeWidth="6" fill="transparent" />
                 <circle
@@ -419,7 +483,7 @@ export default function HomeScreen({
               </svg>
               <div className="absolute flex flex-col items-center">
                 <span className="text-xl font-black text-white">{missionProgressPercent}%</span>
-                <span className="text-[7px] text-slate-450 uppercase tracking-widest font-bold">Progress</span>
+                <span className="text-[7px] text-slate-400 uppercase tracking-widest font-bold">Progress</span>
               </div>
             </div>
           </div>
@@ -435,85 +499,38 @@ export default function HomeScreen({
           </div>
         </div>
 
-        {/* Stats Row Cards */}
-        <div className="grid grid-cols-3 gap-3">
+        {/* 2. QUICK STATS ROW */}
+        <div className="grid grid-cols-3 gap-3 sm:gap-4">
           <div className="bg-white rounded-2xl p-4 border border-gray-100 shadow-sm flex flex-col items-center text-center">
-            <div className="bg-orange-500/10 p-2 rounded-xl text-orange-500">
-              <Flame className="w-4.5 h-4.5" />
+            <div className="bg-orange-500/10 p-2.5 rounded-xl text-orange-500">
+              <Flame className="w-5 h-5" />
             </div>
-            <span className="text-xl font-extrabold text-[#0F172A] mt-2">{dayStreak}</span>
+            <span className="text-xl sm:text-2xl font-extrabold text-[#0F172A] mt-2">{dayStreak}</span>
             <span className="text-[10px] font-semibold text-gray-400 mt-0.5 uppercase tracking-wider">Day Streak</span>
             <span className="text-[9px] text-[#12B886] font-bold mt-1">Keep it up!</span>
           </div>
 
           <div className="bg-white rounded-2xl p-4 border border-gray-100 shadow-sm flex flex-col items-center text-center">
-            <div className="bg-emerald-500/10 p-2 rounded-xl text-emerald-500">
-              <Trophy className="w-4.5 h-4.5" />
+            <div className="bg-emerald-500/10 p-2.5 rounded-xl text-emerald-500">
+              <Trophy className="w-5 h-5" />
             </div>
-            <span className="text-xl font-extrabold text-[#0F172A] mt-2">{todayScore}</span>
+            <span className="text-xl sm:text-2xl font-extrabold text-[#0F172A] mt-2">{todayScore}%</span>
             <span className="text-[10px] font-semibold text-gray-400 mt-0.5 uppercase tracking-wider">Today's Score</span>
             <span className="text-[9px] text-emerald-500 font-bold mt-1">Great progress!</span>
           </div>
 
           <div className="bg-white rounded-2xl p-4 border border-gray-100 shadow-sm flex flex-col items-center text-center">
-            <div className="bg-blue-500/10 p-2 rounded-xl text-blue-500">
-              <Zap className="w-4.5 h-4.5" />
+            <div className="bg-blue-500/10 p-2.5 rounded-xl text-blue-500">
+              <Zap className="w-5 h-5" />
             </div>
-            <span className="text-xl font-extrabold text-[#0F172A] mt-2">+{userPoints}</span>
+            <span className="text-xl sm:text-2xl font-extrabold text-[#0F172A] mt-2">+{userPoints}</span>
             <span className="text-[10px] font-semibold text-gray-400 mt-0.5 uppercase tracking-wider">Mission Pts</span>
             <span className="text-[9px] text-blue-500 font-bold mt-1">Keep going!</span>
           </div>
         </div>
 
-        {/* Diet — same simple macro-grid layout as before, just relabeled from "Nutrition Today" to "Diet" */}
-        <div className="bg-white rounded-2xl p-5 border border-gray-100 shadow-sm">
-          <div className="flex justify-between items-center mb-4">
-            <div className="flex items-center gap-2">
-              <Apple className="w-4.5 h-4.5 text-emerald-500" />
-              <h3 className="text-sm font-bold text-[#0F172A] uppercase tracking-wider">Diet</h3>
-            </div>
-            <button onClick={onOpenLogFood} className="text-[11px] font-bold text-emerald-500 hover:text-emerald-600 transition">
-              Log Food &gt;
-            </button>
-          </div>
-
-          {/* Quick Macro Indicators */}
-          <div className="grid grid-cols-5 gap-1.5 text-center">
-            {[
-              { label: 'Protein', value: nutritionToday.protein, target: targets.protein, unit: 'g', color: 'bg-emerald-500' },
-              { label: 'Carbs', value: nutritionToday.carbs, target: targets.carbs, unit: 'g', color: 'bg-blue-500' },
-              { label: 'Fats', value: nutritionToday.fats, target: targets.fats, unit: 'g', color: 'bg-orange-500' },
-              { label: 'Fiber', value: nutritionToday.fiber, target: targets.fiber, unit: 'g', color: 'bg-purple-500' },
-              { label: 'Calories', value: nutritionToday.calories, target: targets.calories, unit: 'kcal', color: 'bg-slate-700' },
-            ].map((macro) => {
-              const progress = Math.min(100, Math.round((macro.value / (macro.target || 1)) * 100));
-              return (
-                <div key={macro.label} className="flex flex-col items-center">
-                  <span className="text-[8px] font-bold text-gray-400 uppercase tracking-widest">{macro.label}</span>
-                  <span className="text-xs font-extrabold text-[#0F172A] mt-1">
-                    {macro.value}<span className="text-[9px] text-gray-400 font-normal">{macro.unit}</span>
-                  </span>
-                  <span className="text-[9px] font-semibold text-gray-400">/ {macro.target}</span>
-
-                  <div className="w-full bg-gray-100 h-1 rounded-full mt-2 overflow-hidden">
-                    <div className={`${macro.color} h-full rounded-full`} style={{ width: `${progress}%` }} />
-                  </div>
-                  <span className="text-[9px] font-extrabold text-gray-500 mt-1">{progress}%</span>
-                </div>
-              );
-            })}
-          </div>
-
-          <button
-            onClick={onOpenLogFood}
-            className="w-full bg-[#12B886]/5 hover:bg-[#12B886]/10 text-emerald-500 text-xs font-bold py-2.5 rounded-xl border border-[#12B886]/10 flex items-center justify-center gap-1.5 transition mt-4"
-          >
-            🥗 Log Food
-          </button>
-        </div>
-
-        {/* TODAY'S FOCUS CARD */}
-        <div className="bg-gradient-to-br from-amber-950/20 via-slate-900 to-slate-900 rounded-3xl p-5 border border-amber-500/30 shadow-xl relative overflow-hidden">
+        {/* 3. TODAY'S FOCUS */}
+        <div className="bg-gradient-to-br from-amber-950/20 via-slate-900 to-slate-900 rounded-3xl p-5 sm:p-6 border border-amber-500/30 shadow-xl relative overflow-hidden">
           <div className="flex justify-between items-center mb-4">
             <div className="flex items-center gap-2.5">
               <div className="w-8 h-8 rounded-full bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400">
@@ -522,13 +539,15 @@ export default function HomeScreen({
               <div>
                 <h3 className="text-base font-black text-white tracking-tight leading-none">Today's Focus</h3>
                 <p className="text-[9px] text-amber-400/80 font-semibold mt-1 uppercase tracking-wider">
-                  {userPinnedHabits.length > 0 ? `${userPinnedHabits.filter(h => (h.history[dateToday] || 0) >= h.target).length}/${userPinnedHabits.length} PINNED COMPLETED` : 'TOP HIGH-PRIORITY TARGETS'}
+                  {userPinnedHabits.length > 0 
+                    ? `${userPinnedHabits.filter(h => (h.history[dateToday] || 0) >= h.target).length}/${userPinnedHabits.length} PINNED COMPLETED` 
+                    : 'TOP HIGH-PRIORITY TARGETS'}
                 </p>
               </div>
             </div>
             <button
               onClick={() => setTab('today')}
-              className="text-[10px] font-bold text-amber-400 hover:text-amber-300 transition flex items-center gap-1 bg-amber-500/10 px-2.5 py-1 rounded-full border border-amber-500/20"
+              className="text-[10px] font-bold text-amber-400 hover:text-amber-300 transition flex items-center gap-1 bg-amber-500/10 px-3 py-1.5 rounded-full border border-amber-500/20 cursor-pointer"
             >
               <span>Manage Focus</span>
               <ChevronRight className="w-3 h-3" />
@@ -536,8 +555,36 @@ export default function HomeScreen({
           </div>
 
           <div className="space-y-2.5">
-            {focusList.length === 0 ? (
-              <p className="text-xs text-slate-400 italic text-center py-3">No focus habits marked yet. Star any habit to add it here!</p>
+            {/* Incomplete focus routines */}
+            {focusRoutines.map((routine) => {
+              const { completed, total } = routineProgressCount(routine);
+              const pct = total > 0 ? Math.round((completed / total) * 100) : 0;
+              const rMeta = getRoutineMetaForLogger(routine);
+              const RoutineIcon = rMeta.lucideIcon;
+              return (
+                <button
+                  key={routine.id}
+                  className="w-full text-left rounded-2xl border border-amber-500/20 bg-slate-800/80 p-3 flex items-center gap-3 relative overflow-hidden cursor-pointer hover:border-amber-400/50 transition"
+                  onClick={() => setActiveRoutineDetails(routine)}
+                >
+                  <div className="absolute left-0 top-0 bottom-0 w-1" style={{ backgroundColor: rMeta.accentColor }} />
+                  <div className="w-9 h-9 rounded-xl border flex items-center justify-center shrink-0" style={{ backgroundColor: `${rMeta.accentColor}18`, borderColor: `${rMeta.accentColor}36`, color: rMeta.accentColor }}>
+                    <RoutineIcon className="w-4 h-4" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <h4 className="text-xs font-black text-white truncate">{routine.name}</h4>
+                    <p className="text-[10px] text-slate-400 font-bold mt-0.5">Routine · {completed} of {total} complete</p>
+                  </div>
+                  <span className="text-xs font-black font-mono" style={{ color: rMeta.accentColor }}>{pct}%</span>
+                </button>
+              );
+            })}
+
+            {/* Pinned / priority focus habits */}
+            {focusList.length === 0 && focusRoutines.length === 0 ? (
+              <div className="text-center py-6 text-xs text-amber-400/70 italic bg-amber-500/5 rounded-2xl border border-amber-500/10">
+                No focus habits pinned yet. Star any habit in Today tab to pin it here!
+              </div>
             ) : (
               focusList.map((habit) => {
                 const val = habit.history[dateToday] || 0;
@@ -559,7 +606,7 @@ export default function HomeScreen({
                         <IconComp className="w-4 h-4" />
                       </div>
                       <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 flex-wrap">
                           <h4 className={`text-xs font-bold truncate ${isCompleted ? 'line-through text-slate-400' : 'text-white'}`}>
                             {habit.name}
                           </h4>
@@ -568,11 +615,19 @@ export default function HomeScreen({
                               type="button"
                               onClick={() => onToggleFocusHabit(habit.id)}
                               title={isPinned ? "Unpin from Focus" : "Pin to Focus"}
-                              className="text-amber-400 p-0.5 rounded transition hover:scale-110 active:scale-90"
+                              className="text-amber-400 p-0.5 rounded transition hover:scale-110 active:scale-90 cursor-pointer"
                             >
                               <Star className={`w-3.5 h-3.5 ${isPinned ? 'fill-amber-400' : 'text-slate-500'}`} />
                             </button>
                           )}
+                          {(() => {
+                            const streak = computeHabitStreak(habit);
+                            return (
+                              <span className="text-[9px] font-black text-amber-400 bg-amber-500/10 border border-amber-500/20 px-1.5 py-0.5 rounded-md flex items-center gap-0.5 shrink-0">
+                                🔥 {streak}d streak
+                              </span>
+                            );
+                          })()}
                         </div>
                         <div className="flex items-center gap-2 mt-1">
                           <div className="flex-1 bg-slate-900 h-1.5 rounded-full overflow-hidden">
@@ -602,9 +657,9 @@ export default function HomeScreen({
           </div>
         </div>
 
-        {/* Quick Habit Logger Upgraded Card */}
+        {/* 4. QUICK HABIT LOGGER */}
         <div className="bg-[#0b0e14] text-[#ecefed] rounded-3xl p-5 border border-slate-800 shadow-2xl relative overflow-hidden select-none">
-          {/* Subtle neon grid background accent */}
+          {/* Subtle neon background accents */}
           <div className="absolute top-0 right-0 w-48 h-48 bg-emerald-500/5 rounded-full blur-3xl pointer-events-none" />
           <div className="absolute bottom-0 left-0 w-48 h-48 bg-blue-500/5 rounded-full blur-3xl pointer-events-none" />
           
@@ -768,13 +823,13 @@ export default function HomeScreen({
                     className="group bg-[#121620] rounded-2xl p-2 sm:p-3 border border-slate-850 hover:border-slate-700/60 transition-all duration-300 flex items-center justify-between gap-2 sm:gap-3 relative overflow-hidden select-none cursor-pointer"
                     onClick={() => handleQuickLog(habit.id)}
                   >
-                    {/* Solid Vertical Accent Bar on the Left Edge */}
+                    {/* Solid Vertical Accent Bar */}
                     <div 
                       className="absolute left-0 top-0 bottom-0 w-1.5 transition-all duration-300"
                       style={{ backgroundColor: isCompleted ? '#10b981' : hMeta.accentColor }}
                     />
 
-                    {/* Content Row: Align all elements horizontally on a single line */}
+                    {/* Content Row */}
                     <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1 pl-1.5">
                       {/* Category Icon Circle */}
                       <div
@@ -788,7 +843,7 @@ export default function HomeScreen({
                         <IconComponent className="w-4 h-4 sm:w-4.5 sm:h-4.5" />
                       </div>
                       
-                      {/* Title & Category with timeblock column */}
+                      {/* Title & Category */}
                       <div className="min-w-0 flex-1">
                         <h4 className={`text-sm sm:text-base font-bold truncate leading-tight tracking-tight ${isCompleted ? 'line-through text-slate-500' : 'text-white'}`}>
                           {habit.name}
@@ -810,7 +865,7 @@ export default function HomeScreen({
                         </div>
                       </div>
 
-                      {/* Middle-Right Column: Compact Fraction Progress & Mini Bar */}
+                      {/* Compact Fraction Progress & Mini Bar */}
                       <div className="flex flex-col items-start shrink-0 w-14 sm:w-16">
                         <div className="flex items-baseline justify-between w-full">
                           <span className="text-xs font-black font-mono leading-none" style={{ color: isCompleted ? '#10b981' : hMeta.accentColor }}>
@@ -824,7 +879,6 @@ export default function HomeScreen({
                           {habit.unit || 'reps'}
                         </span>
                         
-                        {/* Compact Horizontal mini progress line track */}
                         <div className="w-full bg-[#1b2234] h-1.5 rounded-full mt-1.5 overflow-hidden">
                           <div
                             className="h-full rounded-full transition-all duration-500"
@@ -834,7 +888,7 @@ export default function HomeScreen({
                       </div>
                     </div>
                     
-                    {/* Right: One-tap complete circle. Clicking the row OR this button both fire the same one-tap action. */}
+                    {/* 1-tap complete circle button */}
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
@@ -860,140 +914,219 @@ export default function HomeScreen({
           </div>
         </div>
 
-        </div> {/* End Left Column */}
+        {/* 5. DIET LOGGER */}
+        {(() => {
+          const dietPrefs = getDietPreferences();
+          const waterMlToday = getWaterIntakeForDate(dateToday);
+          const mealsCountToday = todaysFoodLog.length;
 
-        {/* Right Column: Today's Focus (pinned habits), Pillars, Routines, and Quote */}
-        <div className="lg:col-span-5 space-y-6">
+          const activeMetrics: { key: string; label: string; value: number | string; target?: number | string; targetRaw?: number; unit: string; color: string; canEditTarget?: boolean }[] = [];
 
-          {/* TODAY FOCUS — shows user-pinned habits; fallback to top auto-priority */}
-          <div className="bg-white rounded-2xl p-5 border border-gray-100 shadow-sm">
-            <div className="flex justify-between items-center mb-4 select-none">
-              <div>
+          if (dietPrefs.showCalories) {
+            activeMetrics.push({ key: 'calories', label: 'Calories', value: nutritionToday.calories, target: targets.calories, targetRaw: targets.calories, unit: 'kcal', color: 'bg-amber-500', canEditTarget: true });
+          }
+          if (dietPrefs.showProtein) {
+            activeMetrics.push({ key: 'protein', label: 'Protein', value: nutritionToday.protein, target: targets.protein, targetRaw: targets.protein, unit: 'g', color: 'bg-emerald-500', canEditTarget: true });
+          }
+          if (dietPrefs.showWater) {
+            activeMetrics.push({ key: 'water', label: 'Water', value: (waterMlToday / 1000).toFixed(1), target: (dietPrefs.waterGoalMl / 1000).toFixed(1), targetRaw: dietPrefs.waterGoalMl / 1000, unit: 'L', color: 'bg-sky-500', canEditTarget: true });
+          }
+          if (dietPrefs.showMeals) {
+            activeMetrics.push({ key: 'meals', label: 'Meals', value: mealsCountToday, target: dietPrefs.mealsGoal, unit: 'meals', color: 'bg-purple-500' });
+          }
+          if (dietPrefs.showCarbs) {
+            activeMetrics.push({ key: 'carbs', label: 'Carbs', value: nutritionToday.carbs, target: targets.carbs, unit: 'g', color: 'bg-blue-500' });
+          }
+          if (dietPrefs.showFats) {
+            activeMetrics.push({ key: 'fats', label: 'Fats', value: nutritionToday.fats, target: targets.fats, unit: 'g', color: 'bg-orange-500' });
+          }
+          if (dietPrefs.showFiber) {
+            activeMetrics.push({ key: 'fiber', label: 'Fiber', value: nutritionToday.fiber, target: targets.fiber, unit: 'g', color: 'bg-indigo-500' });
+          }
+
+          const displayMetrics = activeMetrics.length > 0 ? activeMetrics : [
+            { key: 'calories', label: 'Calories', value: nutritionToday.calories, target: targets.calories, targetRaw: targets.calories, unit: 'kcal', color: 'bg-amber-500', canEditTarget: true },
+            { key: 'protein', label: 'Protein', value: nutritionToday.protein, target: targets.protein, targetRaw: targets.protein, unit: 'g', color: 'bg-emerald-500', canEditTarget: true },
+          ];
+
+          return (
+            <div className="bg-white rounded-2xl p-5 border border-gray-100 shadow-sm relative">
+              <div className="flex justify-between items-center mb-4">
                 <div className="flex items-center gap-2">
-                  <Star className="w-4 h-4 fill-amber-400 text-amber-400" />
-                  <h3 className="text-sm font-black text-[#0F172A] uppercase tracking-wider">Today Focus</h3>
+                  <Apple className="w-4.5 h-4.5 text-emerald-500" />
+                  <h3 className="text-sm font-bold text-[#0F172A] uppercase tracking-wider">Diet Logger</h3>
                 </div>
-                <p className="text-[10px] text-gray-400 font-bold mt-0.5">
-                  {userPinnedHabits.length > 0
-                    ? `${userPinnedHabits.filter(h => (h.history[dateToday] || 0) >= h.target).length}/${userPinnedHabits.length} pinned completed · Star habits in Today tab`
-                    : 'Star any habit in Today tab to pin it here'}
-                </p>
-              </div>
-              <button onClick={() => setTab('today')} className="text-xs font-bold text-emerald-500 hover:text-emerald-600 transition">
-                View All
-              </button>
-            </div>
-
-            <div className="space-y-2.5">
-              {/* Pinned routines (incomplete) */}
-              {focusRoutines.map((routine) => {
-                const { completed, total } = routineProgressCount(routine);
-                const pct = total > 0 ? Math.round((completed / total) * 100) : 0;
-                const rMeta = getRoutineMetaForLogger(routine);
-                const RoutineIcon = rMeta.lucideIcon;
-                return (
+                {onResetDietProgress && (
                   <button
-                    key={routine.id}
-                    className="w-full text-left rounded-2xl border border-gray-100 bg-slate-50/70 p-3 flex items-center gap-3 relative overflow-hidden cursor-pointer hover:border-slate-200 transition"
-                    onClick={() => setActiveRoutineDetails(routine)}
+                    type="button"
+                    onClick={() => {
+                      if (confirm("Reset today's diet log and water progress to 0?")) {
+                        onResetDietProgress();
+                        setWaterMlState(0);
+                      }
+                    }}
+                    className="bg-red-50 hover:bg-red-100 border border-red-100 text-red-600 text-[10px] font-bold px-2.5 py-1 rounded-lg transition flex items-center gap-1 cursor-pointer"
+                    title="Reset today's food log & water to 0"
                   >
-                    <div className="absolute left-0 top-0 bottom-0 w-1" style={{ backgroundColor: rMeta.accentColor }} />
-                    <div className="w-9 h-9 rounded-xl border flex items-center justify-center shrink-0" style={{ backgroundColor: `${rMeta.accentColor}12`, borderColor: `${rMeta.accentColor}26`, color: rMeta.accentColor }}>
-                      <RoutineIcon className="w-4 h-4" />
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <h4 className="text-xs font-black text-[#0F172A] truncate">{routine.name}</h4>
-                      <p className="text-[10px] text-gray-400 font-bold mt-0.5">Routine · {completed} of {total} complete</p>
-                    </div>
-                    <span className="text-xs font-black font-mono" style={{ color: rMeta.accentColor }}>{pct}%</span>
+                    <RotateCcw className="w-3 h-3" />
+                    <span>RESET</span>
                   </button>
-                );
-              })}
+                )}
+              </div>
 
-              {/* Pinned / auto-priority habits */}
-              {focusList.map((habit) => {
-                const progressVal = habit.history[dateToday] || 0;
-                const isCompleted = progressVal >= habit.target;
-                const isPinned = focusedHabitIds.includes(habit.id);
-                const hMeta = getCategoryMetaForLogger(habit.category);
-                const HabitIcon = hMeta.lucideIcon;
-                const pct = habit.target > 0 ? Math.min(100, Math.round((progressVal / habit.target) * 100)) : 0;
-                return (
-                  <div
-                    key={habit.id}
-                    className={`w-full bg-white rounded-2xl p-3 border shadow-sm flex items-center justify-between gap-3 relative overflow-hidden transition text-left ${
-                      isCompleted ? 'border-emerald-200 bg-emerald-50/30' : 'border-gray-100 hover:border-amber-200'
-                    }`}
-                  >
-                    <div className="absolute left-0 top-0 bottom-0 w-1" style={{ backgroundColor: isCompleted ? '#10B981' : hMeta.accentColor }} />
-                    <div className="flex items-center gap-3 min-w-0 flex-1">
-                      <div className="w-9 h-9 rounded-xl border flex items-center justify-center shrink-0" style={{ backgroundColor: `${hMeta.accentColor}12`, borderColor: `${hMeta.accentColor}26`, color: hMeta.accentColor }}>
-                        <HabitIcon className="w-4 h-4" />
+              {/* Dynamic Metric Cards */}
+              <div className={`grid gap-2 text-center ${displayMetrics.length <= 2 ? 'grid-cols-2' : displayMetrics.length === 3 ? 'grid-cols-3' : 'grid-cols-2 sm:grid-cols-4'}`}>
+                {displayMetrics.map((macro) => {
+                  const numVal = typeof macro.value === 'number' ? macro.value : parseFloat(String(macro.value)) || 0;
+                  const numTarget = typeof macro.target === 'number' ? macro.target : parseFloat(String(macro.target)) || 1;
+                  const progress = Math.min(100, Math.round((numVal / Math.max(0.1, numTarget)) * 100));
+                  return (
+                    <div key={macro.label} className="bg-slate-50/80 p-2.5 rounded-2xl border border-slate-100 flex flex-col items-center justify-between relative group">
+                      <div className="w-full flex items-center justify-between">
+                        <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest">{macro.label}</span>
+                        {macro.canEditTarget && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditingTargetKey(macro.key as 'protein' | 'calories' | 'water');
+                              setTargetInputValue(String(macro.targetRaw ?? macro.target ?? ''));
+                            }}
+                            className="p-0.5 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-md transition cursor-pointer"
+                            title={`Edit ${macro.label} Target`}
+                          >
+                            <Plus className="w-3 h-3 stroke-[3]" />
+                          </button>
+                        )}
                       </div>
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-1.5">
-                          <h4 className={`text-xs font-black truncate ${isCompleted ? 'line-through text-gray-400' : 'text-[#0F172A]'}`}>{habit.name}</h4>
-                          {onToggleFocusHabit && (
-                            <button
-                              type="button"
-                              onClick={() => onToggleFocusHabit(habit.id)}
-                              title={isPinned ? 'Unpin from Focus' : 'Pin to Focus'}
-                              className={`p-0.5 rounded transition hover:scale-110 active:scale-90 shrink-0 ${isPinned ? 'text-amber-400' : 'text-slate-300 hover:text-amber-400'}`}
-                            >
-                              <Star className={`w-3.5 h-3.5 ${isPinned ? 'fill-amber-400 text-amber-400' : ''}`} />
-                            </button>
-                          )}
-                        </div>
-                        <div className="flex items-center gap-2 mt-1">
-                          <div className="flex-1 bg-gray-100 h-1 rounded-full overflow-hidden">
-                            <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, backgroundColor: isCompleted ? '#10b981' : hMeta.accentColor }} />
-                          </div>
-                          <span className="text-[9px] font-mono text-gray-400 font-bold shrink-0">{progressVal}/{habit.target} {habit.unit}</span>
-                        </div>
+
+                      <span className="text-xs font-black text-[#0F172A] my-1">
+                        {macro.value}<span className="text-[9px] text-slate-400 font-normal ml-0.5">{macro.unit}</span>
+                      </span>
+                      {macro.target !== undefined && (
+                        <span className="text-[8px] font-mono text-slate-400">/ {macro.target}{macro.unit}</span>
+                      )}
+                      <div className="w-full bg-slate-200 h-1.5 rounded-full mt-1.5 overflow-hidden">
+                        <div className={`${macro.color} h-full rounded-full transition-all duration-300`} style={{ width: `${progress}%` }} />
                       </div>
                     </div>
+                  );
+                })}
+              </div>
+
+              {/* Quick Hydration Log & Status Bar */}
+              {dietPrefs.showWater && (
+                <div className="mt-3 p-2.5 bg-sky-50/80 rounded-2xl border border-sky-100 flex items-center justify-between flex-wrap gap-2">
+                  <div className="flex items-center gap-2">
+                    <Droplet className="w-4 h-4 text-sky-600 shrink-0" />
+                    <div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-xs font-black text-sky-950">{(waterMlToday / 1000).toFixed(1)}L / {(dietPrefs.waterGoalMl / 1000).toFixed(1)}L</span>
+                        <span className="text-[9px] font-black uppercase px-2 py-0.5 rounded-full bg-sky-100 text-sky-700 border border-sky-200">
+                          💧 {Math.min(100, Math.round((waterMlToday / dietPrefs.waterGoalMl) * 100))}% Hydrated {waterMlToday >= dietPrefs.waterGoalMl ? '- On Track!' : ''}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-1.5 ml-auto">
                     <button
-                      onClick={() => handleQuickLog(habit.id)}
-                      className={`w-7 h-7 rounded-full flex items-center justify-center border shrink-0 transition cursor-pointer ${
-                        isCompleted ? 'bg-emerald-500 border-emerald-500 text-white' : 'border-gray-200 text-transparent hover:border-emerald-400'
-                      }`}
+                      type="button"
+                      onClick={() => handleQuickWaterAddHome(250)}
+                      className="px-2.5 py-1 bg-white hover:bg-sky-100 text-sky-700 text-[10px] font-extrabold rounded-xl border border-sky-200 shadow-2xs transition cursor-pointer"
                     >
-                      <Check className="w-4 h-4 stroke-[3px]" />
+                      +250ml
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleQuickWaterAddHome(500)}
+                      className="px-2.5 py-1 bg-sky-600 hover:bg-sky-700 text-white text-[10px] font-extrabold rounded-xl shadow-2xs transition cursor-pointer"
+                    >
+                      +500ml
                     </button>
                   </div>
-                );
-              })}
+                </div>
+              )}
 
-              {focusRoutines.length === 0 && focusList.length === 0 && (
-                <div className="text-center py-6 text-xs text-gray-400 font-semibold bg-amber-50/50 rounded-2xl border border-amber-100">
-                  <Star className="w-5 h-5 text-amber-300 mx-auto mb-2" />
-                  Go to Today tab and ⭐ star any habit to pin it here.
+              <div className="mt-3">
+                <button
+                  onClick={onOpenLogFood}
+                  className="w-full bg-[#12B886]/10 hover:bg-[#12B886]/20 text-[#12B886] text-xs font-bold py-2.5 rounded-xl border border-[#12B886]/20 flex items-center justify-center gap-1.5 transition cursor-pointer"
+                >
+                  🥗 Quick Log Food
+                </button>
+              </div>
+
+              {/* Target Editing Modal */}
+              {editingTargetKey && (
+                <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center z-50 p-4 animate-fade-in select-none">
+                  <div className="bg-white rounded-3xl p-5 sm:p-6 max-w-xs w-full shadow-2xl border border-slate-100 space-y-4">
+                    <div className="flex justify-between items-center">
+                      <h3 className="text-xs sm:text-sm font-black text-slate-900 uppercase tracking-wide">
+                        Edit {editingTargetKey === 'protein' ? 'Protein Goal (g)' : editingTargetKey === 'calories' ? 'Calories Goal (kcal)' : 'Water Goal (L)'}
+                      </h3>
+                      <button onClick={() => setEditingTargetKey(null)} className="p-1 text-slate-400 hover:text-slate-600 rounded-full cursor-pointer">
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+
+                    <form onSubmit={handleSaveTargetFromHome} className="space-y-3">
+                      <div>
+                        <label className="text-[10px] font-black text-slate-400 uppercase block mb-1">New Target Goal</label>
+                        <input
+                          type="number"
+                          step="any"
+                          min="0"
+                          value={targetInputValue}
+                          onChange={(e) => setTargetInputValue(e.target.value)}
+                          className="w-full bg-slate-50 border border-slate-200 px-3 py-2 rounded-xl text-sm font-bold text-slate-900 focus:outline-none focus:border-emerald-500"
+                          autoFocus
+                          required
+                        />
+                      </div>
+                      <div className="flex justify-end gap-2 pt-1">
+                        <button
+                          type="button"
+                          onClick={() => setEditingTargetKey(null)}
+                          className="px-3 py-2 rounded-xl text-xs font-bold text-slate-500 hover:bg-slate-100 cursor-pointer"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="submit"
+                          className="px-4 py-2 rounded-xl text-xs font-black bg-emerald-600 hover:bg-emerald-700 text-white shadow-md shadow-emerald-600/15 cursor-pointer"
+                        >
+                          Save Target
+                        </button>
+                      </div>
+                    </form>
+                  </div>
                 </div>
               )}
             </div>
-          </div>
+          );
+        })()}
 
-        {/* Pillars Overview Grid — now reflects real habit + routine completion */}
-        <div className="bg-white rounded-2xl p-5 border border-gray-100 shadow-sm">
-          <div className="flex justify-between items-center mb-4">
+        {/* 6. PILLARS OVERVIEW */}
+        <div className="bg-white rounded-2xl p-5 border border-gray-100 shadow-sm space-y-5">
+          <div className="flex justify-between items-center">
             <h3 className="text-sm font-bold text-[#0F172A] uppercase tracking-wider">Pillars Overview</h3>
-            <button onClick={() => setTab('progress')} className="text-xs font-bold text-emerald-500 hover:text-emerald-600 transition">
+            <button onClick={() => setTab('progress')} className="text-xs font-bold text-emerald-500 hover:text-emerald-600 transition cursor-pointer">
               See Details
             </button>
           </div>
 
-          <div className="grid grid-cols-5 gap-2">
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
             {pillarDetails.map((pillar) => {
               const PillarIcon = pillar.icon;
               return (
-                <div key={pillar.name} className="flex flex-col items-center">
+                <div key={pillar.name} className="flex flex-col items-center bg-slate-50/50 p-3 rounded-2xl border border-slate-100">
                   <div className={`w-11 h-11 rounded-2xl border flex items-center justify-center ${pillar.meta.soft} ${pillar.meta.border} ${pillar.meta.text}`}>
                     <PillarIcon className="w-5 h-5" />
                   </div>
-                  <span className="text-[9px] font-bold text-[#0F172A] mt-2">{pillar.name}</span>
+                  <span className="text-[10px] font-bold text-[#0F172A] mt-2">{pillar.name}</span>
                   <span className="text-xs font-black mt-0.5" style={{ color: pillar.meta.accent }}>{pillar.value}%</span>
-                  <div className="w-8 bg-gray-100 h-1 rounded-full mt-1.5 overflow-hidden">
-                    <div className="h-full rounded-full" style={{ width: `${pillar.value}%`, backgroundColor: pillar.meta.accent }} />
+                  <div className="w-full bg-gray-200 h-1.5 rounded-full mt-1.5 overflow-hidden">
+                    <div className="h-full rounded-full transition-all duration-300" style={{ width: `${pillar.value}%`, backgroundColor: pillar.meta.accent }} />
                   </div>
                   <span className="text-[8px] text-gray-400 mt-1">{pillar.items} item{pillar.items === 1 ? '' : 's'}</span>
                   <span className="text-[8px] font-black mt-0.5" style={{ color: pillar.meta.accent }}>{pillar.goals} goal{pillar.goals === 1 ? '' : 's'}</span>
@@ -1001,108 +1134,63 @@ export default function HomeScreen({
               );
             })}
           </div>
-        </div>
 
-        {pillarGoals.length > 0 && (
-          <div className="bg-[#0F172A] rounded-2xl p-5 border border-slate-800 shadow-sm text-white">
-            <div className="flex items-center justify-between mb-4">
-              <div>
-                <h3 className="text-sm font-black uppercase tracking-wider">90-Day Goals</h3>
-                <p className="text-[10px] text-slate-400 font-bold mt-0.5">Pinned by pillar</p>
-              </div>
-              <button onClick={onOpenCreateModal} className="text-xs font-black text-emerald-400 hover:text-emerald-300 transition">
-                Add Goal
-              </button>
-            </div>
-            <div className="space-y-2.5">
-              {pillarGoals.slice(0, 4).map((goal) => {
-                const meta = PILLAR_META[goal.pillar];
-                const GoalIcon = getPillarIcon(goal.pillar);
-                return (
-                  <div key={goal.id} className="rounded-2xl bg-slate-900/70 border border-slate-800 p-3 flex items-center gap-3 relative overflow-hidden">
-                    <div className="absolute left-0 top-0 bottom-0 w-1" style={{ backgroundColor: meta.accent }} />
-                    <div className="w-9 h-9 rounded-xl border flex items-center justify-center shrink-0" style={{ backgroundColor: `${meta.accent}14`, borderColor: `${meta.accent}28`, color: meta.accent }}>
-                      <GoalIcon className="w-4 h-4" />
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <h4 className="text-xs font-black truncate">{goal.title}</h4>
-                      <p className="text-[10px] text-slate-400 font-bold mt-0.5 truncate">{goal.target || goal.desc}</p>
-                    </div>
-                    <span className="text-[9px] font-black uppercase tracking-wider px-2 py-1 rounded-lg border" style={{ color: meta.accent, borderColor: `${meta.accent}24`, backgroundColor: `${meta.accent}10` }}>
-                      {goal.pillar}
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
-
-        {/* Upcoming Routines Section */}
-        <div>
-          <div className="flex justify-between items-center mb-3 select-none">
-            <h3 className="text-sm font-bold text-[#0F172A] uppercase tracking-wider">Upcoming Routines</h3>
-            <button onClick={() => setTab('today')} className="text-xs font-bold text-emerald-500 hover:text-emerald-600 transition">
-              View Day
-            </button>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            {[
-              { id: 'Morning', title: 'Morning', time: '6:00 AM' },
-              { id: 'Afternoon', title: 'Afternoon', time: '12:00 PM' },
-              { id: 'Evening', title: 'Evening', time: '5:00 PM' },
-              { id: 'Night', title: 'Night', time: '9:00 PM' },
-            ].map((block) => {
-              const count = routines.filter(r => r.timeBlock === block.id).length;
-              return (
-                <div
-                  key={block.id}
-                  onClick={() => setTab('today')}
-                  className="bg-white p-4 rounded-2xl border border-gray-100 shadow-sm cursor-pointer hover:border-emerald-300 transition-all flex flex-col justify-between"
-                >
-                  <div className="flex justify-between items-start">
-                    <div>
-                      <h4 className="text-xs font-bold text-[#0F172A]">{block.title}</h4>
-                      <p className="text-[9px] text-gray-400 font-mono mt-0.5">{block.time}</p>
-                    </div>
-                    <span className="text-lg">
-                      {block.id === 'Morning' ? '☀️' : block.id === 'Afternoon' ? '🌤️' : block.id === 'Evening' ? '🌆' : '🌙'}
-                    </span>
-                  </div>
-                  <div className="mt-4 flex justify-between items-center">
-                    <span className="text-[9px] font-extrabold text-emerald-500 bg-emerald-50 px-2 py-0.5 rounded-full">
-                      {count} routine{count === 1 ? '' : 's'}
-                    </span>
-                    <ChevronRight className="w-3.5 h-3.5 text-gray-300" />
-                  </div>
+          {/* 90-Day Goals by Pillar */}
+          {pillarGoals.length > 0 && (
+            <div className="bg-[#0F172A] rounded-2xl p-4 sm:p-5 border border-slate-800 shadow-sm text-white mt-4">
+              <div className="flex items-center justify-between mb-4">
+                <div>
+                  <h3 className="text-xs sm:text-sm font-black uppercase tracking-wider">90-Day Goals</h3>
+                  <p className="text-[10px] text-slate-400 font-bold mt-0.5">Pinned by pillar</p>
                 </div>
-              );
-            })}
+                <button onClick={onOpenCreateModal} className="text-xs font-black text-emerald-400 hover:text-emerald-300 transition cursor-pointer">
+                  + Add Goal
+                </button>
+              </div>
+              <div className="space-y-2.5">
+                {pillarGoals.slice(0, 4).map((goal) => {
+                  const meta = PILLAR_META[goal.pillar];
+                  const GoalIcon = getPillarIcon(goal.pillar);
+                  return (
+                    <div key={goal.id} className="rounded-2xl bg-slate-900/70 border border-slate-800 p-3 flex items-center gap-3 relative overflow-hidden">
+                      <div className="absolute left-0 top-0 bottom-0 w-1" style={{ backgroundColor: meta.accent }} />
+                      <div className="w-9 h-9 rounded-xl border flex items-center justify-center shrink-0" style={{ backgroundColor: `${meta.accent}14`, borderColor: `${meta.accent}28`, color: meta.accent }}>
+                        <GoalIcon className="w-4 h-4" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <h4 className="text-xs font-black truncate">{goal.title}</h4>
+                        <p className="text-[10px] text-slate-400 font-bold mt-0.5 truncate">{goal.target || goal.desc}</p>
+                      </div>
+                      <span className="text-[9px] font-black uppercase tracking-wider px-2 py-1 rounded-lg border" style={{ color: meta.accent, borderColor: `${meta.accent}24`, backgroundColor: `${meta.accent}10` }}>
+                        {goal.pillar}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Mountain Quote Card */}
+          <div className="bg-gradient-to-r from-emerald-50 to-teal-50 rounded-2xl p-4 border border-emerald-100 flex items-center gap-4 relative overflow-hidden select-none">
+            <div className="absolute -bottom-4 -right-4 opacity-10">
+              <svg className="w-24 h-24 text-emerald-700" fill="currentColor" viewBox="0 0 24 24">
+                <path d="M12 2L2 22h20L12 2zm0 4l6.5 13h-13L12 6z" />
+              </svg>
+            </div>
+            <div className="bg-emerald-500/10 w-10 h-10 rounded-xl flex items-center justify-center shrink-0">
+              <span className="text-lg">⛰️</span>
+            </div>
+            <div>
+              <p className="text-[#099268] text-[11px] font-extrabold italic leading-relaxed">
+                "Discipline today, freedom tomorrow."
+              </p>
+              <p className="text-gray-400 text-[9px] font-bold uppercase tracking-wider mt-1">- Unknown Author</p>
+            </div>
           </div>
         </div>
 
-        {/* Mountain Quote Card */}
-        <div className="bg-gradient-to-r from-emerald-50 to-teal-50 rounded-2xl p-5 border border-emerald-100 flex items-center gap-4 relative overflow-hidden select-none">
-          <div className="absolute -bottom-4 -right-4 opacity-10">
-            <svg className="w-24 h-24 text-emerald-700" fill="currentColor" viewBox="0 0 24 24">
-              <path d="M12 2L2 22h20L12 2zm0 4l6.5 13h-13L12 6z" />
-            </svg>
-          </div>
-          <div className="bg-emerald-500/10 w-10 h-10 rounded-xl flex items-center justify-center shrink-0">
-            <span className="text-lg">⛰️</span>
-          </div>
-          <div>
-            <p className="text-[#099268] text-[11px] font-extrabold italic leading-relaxed">
-              "Discipline today, freedom tomorrow."
-            </p>
-            <p className="text-gray-405 text-[9px] font-bold uppercase tracking-wider mt-1">- Unknown Author</p>
-          </div>
-        </div>
-
-          </div> {/* End Right Column */}
-        </div> {/* End Grid Wrapper */}
-      </div> {/* End Main Responsive Container */}
+      </div>
 
       {/* Interactive Routine Details Modal */}
       <AnimatePresence>

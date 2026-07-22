@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { 
   User, 
   LogOut, 
@@ -11,7 +11,10 @@ import {
   Zap,
   Flame,
   Dumbbell,
-  CheckCircle2
+  CheckCircle2,
+  X,
+  RotateCcw,
+  AlertTriangle
 } from 'lucide-react';
 import { Habit, Routine } from '../types';
 
@@ -22,6 +25,7 @@ interface ProfileScreenProps {
   routines: Routine[];
   onLogout: () => void;
   onReset: () => void;
+  onResetDay1?: () => void;
 }
 
 export default function ProfileScreen({
@@ -30,13 +34,24 @@ export default function ProfileScreen({
   habits,
   routines,
   onLogout,
-  onReset
+  onReset,
+  onResetDay1,
 }: ProfileScreenProps) {
+  const [showResetModal, setShowResetModal] = useState(false);
+
   // Stats
   const email = currentUser?.email || 'saicharanreddy.kandi@gmail.com';
   const name = email.split('@')[0];
   const capitalizedName = name.charAt(0).toUpperCase() + name.slice(1);
-  const dayStreak = currentUser?.consecutive_locked_in_streak || 17;
+  const dayStreak = currentUser?.consecutive_locked_in_streak || 0;
+
+  // Journey details
+  const journeyStart = currentUser?.journey_start_date ? new Date(currentUser.journey_start_date) : null;
+  let currentDay = 1;
+  if (journeyStart) {
+    const diffDays = Math.floor((new Date().getTime() - journeyStart.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+    currentDay = Math.max(1, Math.min(90, diffDays));
+  }
 
   // Level computation based on points (e.g. 100 points per level)
   const userLevel = Math.max(1, Math.floor(userPoints / 100));
@@ -51,8 +66,8 @@ export default function ProfileScreen({
       
       {/* Header */}
       <div className="px-6 pt-6 pb-4 select-none">
-        <h1 className="text-2xl font-black text-[#0F172A] tracking-tight">Profile</h1>
-        <p className="text-gray-450 text-xs font-semibold mt-0.5">Your locked-in credentials</p>
+        <h1 className="text-2xl font-black text-[#0F172A] tracking-tight">Profile & Mission</h1>
+        <p className="text-gray-450 text-xs font-semibold mt-0.5">Day {currentDay} of 90 · Locked-in credentials</p>
       </div>
 
       {/* Profile Card Summary */}
@@ -66,7 +81,7 @@ export default function ProfileScreen({
           <div>
             <div className="flex items-center gap-1.5 bg-emerald-50 text-[#099268] border border-emerald-100 px-2.5 py-0.5 rounded-full text-[9px] font-extrabold uppercase tracking-wider w-fit">
               <ShieldCheck className="w-3.5 h-3.5" />
-              <span>Rank: LOCK-IN Warrior</span>
+              <span>Rank: LOCK-IN Warrior (Day {currentDay}/90)</span>
             </div>
             <h2 className="text-lg font-black text-[#0F172A] mt-1.5">{capitalizedName}</h2>
             <p className="text-[10px] font-mono text-gray-400 mt-0.5">{email}</p>
@@ -134,14 +149,16 @@ export default function ProfileScreen({
         {/* Actions section */}
         <div className="space-y-2.5 pt-4">
           <button
-            onClick={onReset}
-            className="w-full bg-rose-50 hover:bg-rose-100/85 border border-rose-150 py-3.5 rounded-2xl text-rose-600 font-extrabold text-xs tracking-wider flex items-center justify-center gap-2 transition active:scale-95 cursor-pointer shadow-sm"
+            type="button"
+            onClick={() => setShowResetModal(true)}
+            className="w-full bg-rose-50 hover:bg-rose-100/85 border border-rose-200 py-3.5 rounded-2xl text-rose-600 font-extrabold text-xs tracking-wider flex items-center justify-center gap-2 transition active:scale-95 cursor-pointer shadow-sm"
           >
             <RefreshCw className="w-4 h-4" />
-            <span>RESET 90-DAY MISSION</span>
+            <span>RESET 90-DAY LOCK-IN MISSION</span>
           </button>
 
           <button
+            type="button"
             onClick={onLogout}
             className="w-full bg-slate-100 hover:bg-slate-200 border border-slate-200 py-3.5 rounded-2xl text-slate-700 font-extrabold text-xs tracking-wider flex items-center justify-center gap-2 transition active:scale-95 cursor-pointer shadow-sm"
           >
@@ -149,6 +166,68 @@ export default function ProfileScreen({
             <span>SIGN OUT MISSION</span>
           </button>
         </div>
+
+        {/* RESET CONFIRMATION MODAL */}
+        {showResetModal && (
+          <div className="fixed inset-0 z-[90] bg-black/65 backdrop-blur-sm flex items-center justify-center p-4">
+            <div className="bg-white rounded-3xl p-6 border border-slate-100 shadow-2xl max-w-sm w-full space-y-4 text-center">
+              <div className="w-12 h-12 rounded-full bg-rose-100 text-rose-600 border border-rose-200 flex items-center justify-center mx-auto">
+                <AlertTriangle className="w-6 h-6" />
+              </div>
+
+              <div>
+                <h3 className="text-base font-black text-slate-900">Reset 90-Day Mission</h3>
+                <p className="text-xs text-slate-500 font-medium mt-1">
+                  Currently on **Day {currentDay} of 90**. How would you like to reset?
+                </p>
+              </div>
+
+              <div className="space-y-2.5 text-left pt-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowResetModal(false);
+                    if (onResetDay1) {
+                      onResetDay1();
+                    } else {
+                      onReset();
+                    }
+                  }}
+                  className="w-full bg-emerald-600 hover:bg-emerald-700 text-white p-3.5 rounded-2xl font-extrabold text-xs transition cursor-pointer shadow-md shadow-emerald-600/20 flex items-center gap-2.5"
+                >
+                  <RotateCcw className="w-4 h-4 shrink-0" />
+                  <div>
+                    <div className="leading-none">Restart Mission from Day 1</div>
+                    <div className="text-[10px] text-emerald-100 font-normal mt-1">Keep existing habit templates, start 90-day timer fresh today.</div>
+                  </div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowResetModal(false);
+                    onReset();
+                  }}
+                  className="w-full bg-slate-100 hover:bg-rose-50 text-slate-700 hover:text-rose-600 border border-slate-200 hover:border-rose-200 p-3.5 rounded-2xl font-bold text-xs transition cursor-pointer flex items-center gap-2.5"
+                >
+                  <RefreshCw className="w-4 h-4 shrink-0 text-slate-400" />
+                  <div>
+                    <div className="leading-none">Full Reset (Wipe All Logs)</div>
+                    <div className="text-[10px] text-slate-400 font-normal mt-1">Clears all logs & resets to initial baseline.</div>
+                  </div>
+                </button>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setShowResetModal(false)}
+                className="text-xs font-bold text-slate-400 hover:text-slate-600 pt-2"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Version branding */}
         <p className="text-[9px] font-mono text-center text-gray-400 uppercase tracking-widest pt-4">

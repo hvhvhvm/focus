@@ -27,6 +27,7 @@ export interface LoggedFood {
   calories: number;
   timestamp: string;
   date?: string;
+  mealType?: 'Breakfast' | 'Lunch' | 'Dinner' | 'Snack';
 }
 
 export type HabitType = 'Count' | 'Timer';

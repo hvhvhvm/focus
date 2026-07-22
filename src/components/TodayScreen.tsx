@@ -16,6 +16,9 @@ import {
   Pencil,
   Trash2,
   Trophy,
+  ChevronLeft,
+  Lock,
+  RotateCcw,
 } from 'lucide-react';
 import { Habit, Routine, Category, PillarGoal } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
@@ -146,7 +149,7 @@ function RowMenu({ actions, ariaLabel }: { actions: MenuAction[]; ariaLabel: str
 
 // ─── TOAST (replaces blocking alert()) ──────────────────────────────────────
 
-function Toast({ message, type, onDismiss }: { message: string; type: 'success' | 'error'; onDismiss: () => void }) {
+function Toast({ message, type, onDismiss }: { key?: React.Key; message: string; type: 'success' | 'error'; onDismiss: () => void }) {
   useEffect(() => {
     const t = setTimeout(onDismiss, 3000);
     return () => clearTimeout(t);
@@ -208,6 +211,7 @@ function CelebrationModal({ day, onClose }: { day: number; onClose: () => void }
 // ─── HABIT ROW ───────────────────────────────────────────────────────────────
 
 interface HabitRowProps {
+  key?: React.Key;
   habit: Habit;
   selectedDate: string;
   onLogHabit: (id: string, value: number) => Promise<void>;
@@ -315,6 +319,7 @@ function HabitRow({ habit, selectedDate, onLogHabit, isFocused, onToggleFocus, o
 // ─── ROUTINE ROW ─────────────────────────────────────────────────────────────
 
 interface RoutineRowProps {
+  key?: React.Key;
   routine: Routine;
   habits: Habit[];
   selectedDate: string;
@@ -442,26 +447,49 @@ export default function TodayScreen({
 
   const notifyError = (message: string) => setToast({ message, type: 'error' });
 
-  // ── Calendar dates (7-day window: 3 past + today + 3 future) ────────────
+  const [weekOffset, setWeekOffset] = useState<number>(0);
+
+  // ── Calendar dates (dynamic week navigation & future date locking) ────────
   const weekDates = (() => {
-    const today = new Date();
     const dates = [];
+    const todayObj = new Date();
+    todayObj.setHours(0, 0, 0, 0);
+
+    // Compute base center date shifted by weekOffset * 7
+    const base = new Date();
+    base.setDate(base.getDate() + (weekOffset * 7));
+
     for (let i = -3; i <= 3; i++) {
-      const d = new Date(today);
-      d.setDate(today.getDate() + i);
+      const d = new Date(base);
+      d.setDate(base.getDate() + i);
+      const dMidnight = new Date(d);
+      dMidnight.setHours(0, 0, 0, 0);
+
       const yyyy = d.getFullYear();
       const mm = String(d.getMonth() + 1).padStart(2, '0');
       const dd = String(d.getDate()).padStart(2, '0');
       const dateStr = `${yyyy}-${mm}-${dd}`;
+
+      const isToday = dateStr === dateToday;
+      const isFuture = dMidnight.getTime() > todayObj.getTime();
+      const isPast = dMidnight.getTime() < todayObj.getTime();
+
       dates.push({
         dateStr,
         dayName: d.toLocaleDateString('en-US', { weekday: 'short' }).toUpperCase(),
         dayNum: d.getDate(),
-        isToday: dateStr === dateToday,
-        isPast: d < new Date(new Date().setHours(0, 0, 0, 0)),
+        isToday,
+        isFuture,
+        isPast,
       });
     }
     return dates;
+  })();
+
+  const currentMonthLabel = (() => {
+    if (weekDates.length === 0) return '';
+    const centerDate = new Date(weekDates[3].dateStr);
+    return centerDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
   })();
 
   // ── Per-day completion % for calendar rings ───────────────────────────────
@@ -591,45 +619,105 @@ export default function TodayScreen({
         </div>
       </div>
 
-      {/* ── CALENDAR STRIP WITH COMPLETION RINGS ───────────────────────── */}
+      {/* ── CALENDAR STRIP WITH NAVIGATION & COMPLETION RINGS ───────────── */}
       <div className="px-4 pb-2">
+        <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-black text-[#0F172A] tracking-wide uppercase">{currentMonthLabel}</span>
+            {(selectedDate !== dateToday || weekOffset !== 0) && (
+              <button
+                type="button"
+                onClick={() => {
+                  setWeekOffset(0);
+                  setSelectedDate(dateToday);
+                }}
+                className="text-[10px] font-bold bg-emerald-50 text-[#12B886] hover:bg-emerald-100 px-2 py-0.5 rounded-full border border-emerald-200/60 transition flex items-center gap-1 cursor-pointer"
+              >
+                <RotateCcw className="w-2.5 h-2.5" />
+                <span>Today</span>
+              </button>
+            )}
+          </div>
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => setWeekOffset(prev => prev - 1)}
+              className="p-1.5 rounded-xl bg-white border border-slate-200 text-slate-600 hover:bg-slate-100 transition cursor-pointer shadow-2xs"
+              title="Previous Days"
+            >
+              <ChevronLeft className="w-3.5 h-3.5" />
+            </button>
+            <button
+              type="button"
+              onClick={() => setWeekOffset(prev => prev + 1)}
+              className="p-1.5 rounded-xl bg-white border border-slate-200 text-slate-600 hover:bg-slate-100 transition cursor-pointer shadow-2xs"
+              title="Next Days"
+            >
+              <ChevronRight className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
+
         <div className="flex gap-2 overflow-x-auto no-scrollbar select-none justify-between">
           {weekDates.map(day => {
             const isSelected = selectedDate === day.dateStr;
             const dayPct = getDayPct(day.dateStr);
             const ringColor = dayPct >= 100 ? '#10b981' : dayPct >= 50 ? '#f59e0b' : '#94a3b8';
+
+            const handleDateClick = () => {
+              if (day.isFuture) {
+                notifyError("Future dates are locked! Focus on today's targets.");
+                return;
+              }
+              setSelectedDate(day.dateStr);
+            };
+
             return (
               <button
                 key={day.dateStr}
-                onClick={() => setSelectedDate(day.dateStr)}
-                aria-label={`${day.dayName} ${day.dayNum}${day.isToday ? ', today' : ''}, ${dayPct}% complete`}
+                onClick={handleDateClick}
+                aria-label={`${day.dayName} ${day.dayNum}${day.isToday ? ', today' : ''}${day.isFuture ? ', locked future date' : ''}, ${dayPct}% complete`}
                 aria-pressed={isSelected}
-                className={`flex flex-col items-center justify-center flex-1 py-1.5 rounded-2xl transition-all duration-200 cursor-pointer relative min-w-[40px] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#12B886] focus-visible:ring-offset-1 ${
-                  isSelected ? 'bg-[#12B886] shadow-lg shadow-emerald-500/25' : 'bg-white hover:bg-slate-50'
+                disabled={day.isFuture}
+                className={`flex flex-col items-center justify-center flex-1 py-1.5 rounded-2xl transition-all duration-200 relative min-w-[40px] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#12B886] focus-visible:ring-offset-1 ${
+                  day.isFuture
+                    ? 'bg-slate-100/70 border border-dashed border-slate-200 opacity-60 cursor-not-allowed'
+                    : isSelected
+                    ? 'bg-[#12B886] shadow-lg shadow-emerald-500/25 cursor-pointer'
+                    : 'bg-white hover:bg-slate-50 cursor-pointer'
                 }`}
               >
-                <span className={`text-[9px] font-black tracking-widest mb-1 ${isSelected ? 'text-emerald-100' : 'text-slate-400'}`}>
+                <span className={`text-[9px] font-black tracking-widest mb-1 ${isSelected ? 'text-emerald-100' : day.isFuture ? 'text-slate-300' : 'text-slate-400'}`}>
                   {day.dayName}
                 </span>
-                {/* Ring wrapping the date number */}
+                {/* Ring wrapping the date number or lock icon */}
                 <div className="relative flex items-center justify-center">
-                  {!isSelected && (
+                  {!isSelected && !day.isFuture && (
                     <div className="absolute inset-0 flex items-center justify-center">
                       <DayRing pct={dayPct} size={36} stroke={3} color={ringColor} today={day.isToday} />
                     </div>
                   )}
-                  <span className={`text-sm font-black z-10 leading-none ${isSelected ? 'text-white' : day.isToday ? 'text-[#12B886]' : 'text-[#0F172A]'}`}>
-                    {day.dayNum}
-                  </span>
+                  {day.isFuture ? (
+                    <div className="w-7 h-7 rounded-full bg-slate-200/60 flex items-center justify-center text-slate-400">
+                      <Lock className="w-3.5 h-3.5" />
+                    </div>
+                  ) : (
+                    <span className={`text-sm font-black z-10 leading-none ${isSelected ? 'text-white' : day.isToday ? 'text-[#12B886]' : 'text-[#0F172A]'}`}>
+                      {day.dayNum}
+                    </span>
+                  )}
                 </div>
                 {/* Completion % label for past days */}
-                {!isSelected && day.isPast && dayPct > 0 && (
+                {!isSelected && !day.isFuture && day.isPast && dayPct > 0 && (
                   <span className={`text-[8px] font-bold mt-1 leading-none ${dayPct >= 100 ? 'text-emerald-500' : 'text-amber-500'}`}>
                     {dayPct}%
                   </span>
                 )}
                 {!isSelected && day.isToday && (
                   <span className="text-[8px] font-bold text-[#12B886] mt-1 leading-none">TODAY</span>
+                )}
+                {day.isFuture && (
+                  <span className="text-[7px] font-bold text-slate-300 mt-1 leading-none uppercase">LOCKED</span>
                 )}
               </button>
             );
