@@ -17,6 +17,15 @@ export interface PillarGoal {
   createdAt: string;
 }
 
+export interface PillarNote {
+  id: string;
+  pillar: Category;
+  title?: string;
+  content: string;
+  date: string;
+  createdAt: string;
+}
+
 export interface LoggedFood {
   id: string;
   name: string;

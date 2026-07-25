@@ -8,7 +8,7 @@ interface LogFoodModalProps {
   isOpen: boolean;
   onClose: () => void;
   onAddFood: (food: { name: string; protein: number; carbs: number; fats: number; fiber: number; calories: number; mealType?: MealType }) => void;
-  loggedFoodsHistory: LoggedFood[];
+  loggedFoodsHistory?: LoggedFood[];
 }
 
 export const MEAL_TYPES: { type: MealType; label: string; icon: string; bg: string; text: string; border: string }[] = [
@@ -39,6 +39,7 @@ export default function LogFoodModal({
   isOpen,
   onClose,
   onAddFood,
+  loggedFoodsHistory = [],
 }: LogFoodModalProps) {
   const [activeTab, setActiveTab] = useState<'quick' | 'custom'>('quick');
   const [searchQuery, setSearchQuery] = useState('');
@@ -102,8 +103,7 @@ export default function LogFoodModal({
     setLoggedIndicator({ name: food.name, mealType: assignedMeal });
     setTimeout(() => {
       setLoggedIndicator(null);
-      onClose();
-    }, 800);
+    }, 1800);
   };
 
   const handleAddFavoriteSubmit = (e: React.FormEvent) => {
@@ -178,8 +178,16 @@ export default function LogFoodModal({
     setLoggedIndicator({ name: name.trim(), mealType: autoMeal });
     setTimeout(() => {
       setLoggedIndicator(null);
-      onClose();
-    }, 800);
+    }, 1800);
+  };
+
+  // Helper to count how many times a food item was logged today
+  const getTodayLogCount = (foodName: string) => {
+    const todayStr = new Date().toISOString().split('T')[0];
+    return (loggedFoodsHistory || []).filter(item => {
+      const isToday = !item.date || item.date === todayStr;
+      return isToday && item.name.toLowerCase().trim() === foodName.toLowerCase().trim();
+    }).length;
   };
 
   // Group favorites by meal type
@@ -210,12 +218,14 @@ export default function LogFoodModal({
           </button>
         </div>
 
-        {/* Visual success indicator */}
+        {/* Visual success toast notification */}
         {loggedIndicator && (
-          <div className="absolute inset-x-0 top-1/3 mx-auto max-w-[280px] bg-emerald-600 text-white py-3.5 px-6 rounded-2xl flex flex-col items-center justify-center gap-1 shadow-2xl border border-emerald-500 z-50 text-center animate-bounce">
-            <Check className="w-6 h-6 stroke-[3px]" />
-            <span className="text-xs font-black uppercase tracking-wider">Logged Successfully!</span>
-            <span className="text-[10px] opacity-90 truncate max-w-full font-bold">{loggedIndicator.name} ({loggedIndicator.mealType})</span>
+          <div className="bg-emerald-600 text-white text-xs font-extrabold px-4 py-2.5 rounded-2xl flex items-center justify-between shadow-lg border border-emerald-500 shrink-0 animate-fade-in">
+            <div className="flex items-center gap-2 min-w-0">
+              <Check className="w-4 h-4 text-white stroke-[3px] shrink-0" />
+              <span className="truncate">Logged <strong>+1 {loggedIndicator.name}</strong> ({loggedIndicator.mealType})!</span>
+            </div>
+            <span className="text-[9px] bg-white/20 text-white px-2 py-0.5 rounded-lg uppercase tracking-wider font-extrabold shrink-0 ml-2">Added Today</span>
           </div>
         )}
 
@@ -252,8 +262,7 @@ export default function LogFoodModal({
                     placeholder="Search favorites..."
                     value={searchQuery}
                     onChange={e => setSearchQuery(e.target.value)}
-                    className="w-full bg-slate-50 border border-slate-200 pl-9 pr-4 py-2 rounded-xl text-xs font-semibold focus:outline-none focus:border-emerald-500 text-slate-900 min-h-[38px]"
-                    autoFocus
+                    className="w-full bg-slate-50 border border-slate-200 pl-9 pr-4 py-2 rounded-xl text-base sm:text-xs font-semibold focus:outline-none focus:border-emerald-500 text-slate-900 min-h-[40px]"
                   />
                   <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
                 </div>
@@ -432,39 +441,57 @@ export default function LogFoodModal({
 
                     {/* Items inside this meal section */}
                     <div className="space-y-1.5 pl-1">
-                      {sectionItems.map((food) => (
-                        <div
-                          key={food.id}
-                          onClick={() => handleQuickLog(food)}
-                          className="w-full bg-slate-50 hover:bg-emerald-50/75 border border-slate-150 hover:border-emerald-200 p-2.5 rounded-2xl transition flex items-center justify-between cursor-pointer group min-h-[48px]"
-                        >
-                          <div className="flex items-center gap-3 min-w-0 flex-1">
-                            <span className="text-sm shrink-0">{food.emoji || mealMeta.icon}</span>
-                            <div className="min-w-0 flex-1">
-                              <p className="text-xs font-black text-slate-800 truncate group-hover:text-emerald-700">{food.name}</p>
-                              <div className="flex items-center gap-1.5 text-[9px] font-mono font-bold text-slate-400 mt-0.5">
-                                <span className="text-emerald-600">P: {food.protein}g</span>
-                                <span>•</span>
-                                <span className="text-amber-600">{food.calories} kcal</span>
+                      {sectionItems.map((food) => {
+                        const todayCount = getTodayLogCount(food.name);
+                        return (
+                          <div
+                            key={food.id}
+                            onClick={() => handleQuickLog(food)}
+                            className="w-full bg-slate-50 hover:bg-emerald-50/75 border border-slate-150 hover:border-emerald-200 p-2.5 rounded-2xl transition flex items-center justify-between cursor-pointer group min-h-[48px]"
+                          >
+                            <div className="flex items-center gap-3 min-w-0 flex-1">
+                              <span className="text-sm shrink-0">{food.emoji || mealMeta.icon}</span>
+                              <div className="min-w-0 flex-1">
+                                <div className="flex items-center gap-2">
+                                  <p className="text-xs font-black text-slate-800 truncate group-hover:text-emerald-700">{food.name}</p>
+                                  {todayCount > 0 && (
+                                    <span className="text-[9px] bg-emerald-100 text-emerald-800 font-black px-2 py-0.5 rounded-full border border-emerald-300 flex items-center gap-0.5 shrink-0 shadow-2xs">
+                                      <Check className="w-2.5 h-2.5 text-emerald-600 stroke-[3px]" />
+                                      {todayCount}x Today
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="flex items-center gap-1.5 text-[9px] font-mono font-bold text-slate-400 mt-0.5">
+                                  <span className="text-emerald-600">P: {food.protein}g</span>
+                                  <span>•</span>
+                                  <span className="text-amber-600">{food.calories} kcal</span>
+                                </div>
                               </div>
                             </div>
-                          </div>
-                          
-                          <div className="flex items-center gap-2 shrink-0 ml-2">
-                            <button
-                              onClick={(e) => handleDeleteFavorite(food.id, e)}
-                              className="bg-slate-100 hover:bg-red-50 text-slate-400 hover:text-red-600 p-1.5 rounded-lg border border-slate-200 hover:border-red-100 transition flex items-center justify-center cursor-pointer"
-                              title="Remove Favorite"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
+                            
+                            <div className="flex items-center gap-2 shrink-0 ml-2">
+                              <button
+                                onClick={(e) => handleDeleteFavorite(food.id, e)}
+                                className="bg-slate-100 hover:bg-red-50 text-slate-400 hover:text-red-600 p-1.5 rounded-lg border border-slate-200 hover:border-red-100 transition flex items-center justify-center cursor-pointer"
+                                title="Remove Favorite"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
 
-                            <span className="text-[10px] bg-emerald-600/10 text-emerald-700 font-black px-2.5 py-1 rounded-xl group-hover:bg-emerald-600 group-hover:text-white transition">
-                              + LOG ({mealType})
-                            </span>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleQuickLog(food);
+                                }}
+                                className="text-[10px] bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-black px-2.5 py-1 rounded-xl shadow-xs transition cursor-pointer"
+                              >
+                                + LOG ({mealType})
+                              </button>
+                            </div>
                           </div>
-                        </div>
-                      ))}
+                        );
+                      })}
 
                       {sectionItems.length === 0 && (
                         <div className="py-3 px-4 bg-slate-50/50 rounded-xl border border-dashed border-slate-200 text-center">
@@ -545,6 +572,19 @@ export default function LogFoodModal({
           </form>
         )}
 
+        {/* Footer Action Bar */}
+        <div className="pt-3 border-t border-slate-100 flex justify-between items-center shrink-0">
+          <span className="text-xs font-bold text-slate-500">
+            Items logged today: <strong className="text-emerald-700 font-black font-mono">{(loggedFoodsHistory || []).filter(f => !f.date || f.date === new Date().toISOString().split('T')[0]).length}</strong>
+          </span>
+          <button
+            type="button"
+            onClick={onClose}
+            className="bg-slate-900 hover:bg-slate-800 text-white font-extrabold text-xs px-5 py-2.5 rounded-xl transition cursor-pointer shadow-md shadow-slate-900/10 active:scale-95"
+          >
+            Done Logging
+          </button>
+        </div>
       </div>
     </div>
   );

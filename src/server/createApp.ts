@@ -66,11 +66,7 @@ export function createApp() {
     if (safeBody.password) safeBody.password = "[REDACTED]";
 
     const logLine = `[${new Date().toISOString()}] ${req.method} ${req.url} - Headers: ${JSON.stringify(safeHeaders)} - Body: ${JSON.stringify(safeBody)}\n`;
-    try {
-      fs.appendFileSync(path.join(process.cwd(), "server_requests.log"), logLine, "utf-8");
-    } catch (e) {
-      console.error("Failed to write request log:", e);
-    }
+    fs.appendFile(path.join(process.cwd(), "server_requests.log"), logLine, "utf-8", () => {});
     console.log(`[SERVER-REQ] ${req.method} ${req.url}`);
     next();
   });
@@ -321,43 +317,41 @@ export function createApp() {
   // Get habits
   app.get("/api/habits", authenticateToken as any, async (req: AuthRequest, res) => {
     try {
-      const userHabits = await db.select().from(habits).where(eq(habits.userId, req.user!.uid));
-      
-      const habitsWithHistory = [];
-      for (const habit of userHabits) {
-        const logs = await db.select().from(habitLogs).where(
-          and(
-            eq(habitLogs.userId, req.user!.uid),
-            eq(habitLogs.habitId, habit.id)
-          )
-        );
+      const uid = req.user!.uid;
+      const [userHabits, allLogs] = await Promise.all([
+        db.select().from(habits).where(eq(habits.userId, uid)),
+        db.select().from(habitLogs).where(eq(habitLogs.userId, uid)),
+      ]);
 
-        const historyMap: { [date: string]: number } = {};
-        logs.forEach((log) => {
-          historyMap[log.date] = log.value;
-        });
-
-        habitsWithHistory.push({
-          id: habit.id,
-          name: habit.name,
-          category: habit.category,
-          points: habit.points,
-          type: habit.type,
-          target: habit.target,
-          unit: habit.unit,
-          repeat: habit.repeat,
-          repeatDays: habit.repeatDays ? JSON.parse(habit.repeatDays) : undefined,
-          timeOfDay: habit.timeOfDay || undefined,
-          timeBlock: habit.timeBlock || undefined,
-          enableFocusTimer: habit.enableFocusTimer === 1,
-          routineId: habit.routineId || undefined,
-          createdAt: habit.createdAt,
-          history: historyMap,
-        });
+      const logsByHabitId: Record<string, Record<string, number>> = {};
+      for (const log of allLogs) {
+        if (!logsByHabitId[log.habitId]) {
+          logsByHabitId[log.habitId] = {};
+        }
+        logsByHabitId[log.habitId][log.date] = log.value;
       }
+
+      const habitsWithHistory = userHabits.map((habit) => ({
+        id: habit.id,
+        name: habit.name,
+        category: habit.category,
+        points: habit.points,
+        type: habit.type,
+        target: habit.target,
+        unit: habit.unit,
+        repeat: habit.repeat,
+        repeatDays: habit.repeatDays ? JSON.parse(habit.repeatDays) : undefined,
+        timeOfDay: habit.timeOfDay || undefined,
+        timeBlock: habit.timeBlock || undefined,
+        enableFocusTimer: habit.enableFocusTimer === 1,
+        routineId: habit.routineId || undefined,
+        createdAt: habit.createdAt,
+        history: logsByHabitId[habit.id] || {},
+      }));
 
       res.json(habitsWithHistory);
     } catch (err) {
+      console.error("Fetch habits error:", err);
       res.status(500).json({ error: "Failed to fetch habits lists." });
     }
   });
@@ -536,36 +530,34 @@ export function createApp() {
   // Get routines
   app.get("/api/routines", authenticateToken as any, async (req: AuthRequest, res) => {
     try {
-      const userRoutines = await db.select().from(routines).where(eq(routines.userId, req.user!.uid));
-      
-      const routinesWithCompletedHistory = [];
-      for (const rt of userRoutines) {
-        const logs = await db.select().from(routineLogs).where(
-          and(
-            eq(routineLogs.userId, req.user!.uid),
-            eq(routineLogs.routineId, rt.id)
-          )
-        );
+      const uid = req.user!.uid;
+      const [userRoutines, allLogs] = await Promise.all([
+        db.select().from(routines).where(eq(routines.userId, uid)),
+        db.select().from(routineLogs).where(eq(routineLogs.userId, uid)),
+      ]);
 
-        const completedMap: { [date: string]: boolean } = {};
-        logs.forEach((log) => {
-          completedMap[log.date] = log.completed;
-        });
-
-        routinesWithCompletedHistory.push({
-          id: rt.id,
-          name: rt.name,
-          points: rt.points,
-          timeBlock: rt.timeBlock,
-          repeat: rt.repeat,
-          repeatDays: rt.repeatDays ? JSON.parse(rt.repeatDays) : undefined,
-          habitIds: rt.habitIds ? JSON.parse(rt.habitIds) : [],
-          completedHistory: completedMap,
-        });
+      const logsByRoutineId: Record<string, Record<string, boolean>> = {};
+      for (const log of allLogs) {
+        if (!logsByRoutineId[log.routineId]) {
+          logsByRoutineId[log.routineId] = {};
+        }
+        logsByRoutineId[log.routineId][log.date] = log.completed;
       }
+
+      const routinesWithCompletedHistory = userRoutines.map((rt) => ({
+        id: rt.id,
+        name: rt.name,
+        points: rt.points,
+        timeBlock: rt.timeBlock,
+        repeat: rt.repeat,
+        repeatDays: rt.repeatDays ? JSON.parse(rt.repeatDays) : undefined,
+        habitIds: rt.habitIds ? JSON.parse(rt.habitIds) : [],
+        completedHistory: logsByRoutineId[rt.id] || {},
+      }));
 
       res.json(routinesWithCompletedHistory);
     } catch (err: any) {
+      console.error("Fetch routines error:", err);
       res.status(500).json({ error: "Failed to retrieve active routines roster." });
     }
   });

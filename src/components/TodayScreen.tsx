@@ -398,6 +398,7 @@ interface TodayScreenProps {
   routines: Routine[];
   dateToday: string;
   onLogHabit: (id: string, value: number) => Promise<void>;
+  onBatchLogHabits?: (updates: { id: string; value: number }[]) => Promise<void>;
   onCompleteRoutine?: (routineId: string) => Promise<void>;
   userPoints: number;
   currentUser: any;
@@ -418,7 +419,7 @@ interface TodayScreenProps {
 // ─── MAIN COMPONENT ──────────────────────────────────────────────────────────
 
 export default function TodayScreen({
-  habits, routines, dateToday, onLogHabit, userPoints, currentUser,
+  habits, routines, dateToday, onLogHabit, onBatchLogHabits, userPoints, currentUser,
   onRefresh,
   focusedHabitIds = [], onToggleFocusHabit,
   onDeleteHabit, onEditHabit, onDeleteRoutine, onEditRoutine, onFinishDay,
@@ -523,11 +524,21 @@ export default function TodayScreen({
 
   const handleMarkRoutineDone = async (routine: Routine) => {
     try {
+      const updates: { id: string; value: number }[] = [];
       for (const hId of routine.habitIds) {
         const habit = habits.find(h => h.id === hId);
         if (habit) {
           const cur = habit.history[selectedDate] || 0;
-          if (cur < habit.target) await onLogHabit(habit.id, habit.target - cur);
+          if (cur < habit.target) updates.push({ id: habit.id, value: habit.target - cur });
+        }
+      }
+      if (updates.length > 0) {
+        if (onBatchLogHabits) {
+          await onBatchLogHabits(updates);
+        } else {
+          for (const u of updates) {
+            onLogHabit(u.id, u.value);
+          }
         }
       }
     } catch (e) {

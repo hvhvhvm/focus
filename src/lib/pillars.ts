@@ -12,7 +12,9 @@ export const PILLAR_META: Record<PillarName, {
   text: string;
   ring: string;
   gradient: string;
+  bgGradient: string;
   intent: string;
+  subtitle: string;
 }> = {
   Fitness: {
     label: 'Fitness',
@@ -22,7 +24,9 @@ export const PILLAR_META: Record<PillarName, {
     text: 'text-emerald-500',
     ring: 'shadow-emerald-500/15',
     gradient: 'from-emerald-500 to-teal-500',
+    bgGradient: 'from-emerald-950/80 via-teal-950/60 to-slate-950',
     intent: 'Train the body',
+    subtitle: 'Strength · Cardio · Body Composition · PRs',
   },
   Nutrition: {
     label: 'Nutrition',
@@ -32,7 +36,9 @@ export const PILLAR_META: Record<PillarName, {
     text: 'text-amber-500',
     ring: 'shadow-amber-500/15',
     gradient: 'from-amber-500 to-orange-500',
+    bgGradient: 'from-amber-950/80 via-orange-950/60 to-slate-950',
     intent: 'Hit diet targets',
+    subtitle: 'Macros · Calories · Hydration · Meal Prep',
   },
   Career: {
     label: 'Career',
@@ -42,7 +48,9 @@ export const PILLAR_META: Record<PillarName, {
     text: 'text-blue-500',
     ring: 'shadow-blue-500/15',
     gradient: 'from-blue-500 to-cyan-500',
+    bgGradient: 'from-blue-950/80 via-cyan-950/60 to-slate-950',
     intent: 'Build skills',
+    subtitle: 'Deep Work · Learning · Projects · Skills',
   },
   Recovery: {
     label: 'Recovery',
@@ -52,7 +60,9 @@ export const PILLAR_META: Record<PillarName, {
     text: 'text-violet-500',
     ring: 'shadow-violet-500/15',
     gradient: 'from-violet-500 to-indigo-500',
+    bgGradient: 'from-violet-950/80 via-indigo-950/60 to-slate-950',
     intent: 'Protect energy',
+    subtitle: 'Sleep · Wind-down · Hydration · Stretching',
   },
   Mind: {
     label: 'Mind',
@@ -62,7 +72,9 @@ export const PILLAR_META: Record<PillarName, {
     text: 'text-pink-500',
     ring: 'shadow-pink-500/15',
     gradient: 'from-pink-500 to-rose-500',
+    bgGradient: 'from-pink-950/80 via-rose-950/60 to-slate-950',
     intent: 'Sharpen focus',
+    subtitle: 'Meditation · Journaling · Gratitude · Focus',
   },
 };
 

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { Suspense, lazy, useState, useEffect } from 'react';
 import AuthPage from './components/AuthPage';
 import { CreateHabitModal, CreateRoutineModal } from './components/Modals';
 import { Habit, Category, Routine, PillarGoal, NutritionTargets } from './types';
@@ -15,27 +15,68 @@ import {
   Bell,
 } from 'lucide-react';
 
-import HomeScreen from './components/HomeScreen';
-import TodayScreen from './components/TodayScreen';
-import ProgressScreen from './components/ProgressScreen';
-import ProfileScreen from './components/ProfileScreen';
-import CreateModal from './components/CreateModal';
 // NOTE: DietScreen is no longer rendered as its own tab (see fix #4) — the diet
 // experience now lives inline on HomeScreen as the "Diet Log" card. We keep the
 // LoggedFood type + LogFoodModal import since logging food is still needed.
 import type { LoggedFood } from './components/DietScreen';
 import { resetWaterIntakeForDate } from './lib/dietPreferences';
-import LogFoodModal from './components/LogFoodModal';
+import HomeScreen from './components/HomeScreen';
+
+const TodayScreen = lazy(() => import('./components/TodayScreen'));
+const ProgressScreen = lazy(() => import('./components/ProgressScreen'));
+const ProfileScreen = lazy(() => import('./components/ProfileScreen'));
+const CreateModal = lazy(() => import('./components/CreateModal'));
+const LogFoodModal = lazy(() => import('./components/LogFoodModal'));
+
+
+const APP_CACHE_KEY = 'focus_now_app_cache_v1';
+
+type AppCache = {
+  profile: any | null;
+  habits: Habit[];
+  routines: Routine[];
+  userPoints: number;
+};
+
+const readAppCache = (): AppCache | null => {
+  try {
+    const raw = localStorage.getItem(APP_CACHE_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch (err) {
+    console.error('Failed to read app cache:', err);
+    return null;
+  }
+};
+
+const writeAppCache = (cache: AppCache) => {
+  try {
+    localStorage.setItem(APP_CACHE_KEY, JSON.stringify(cache));
+  } catch (err) {
+    console.error('Failed to save app cache:', err);
+  }
+};
+
+const SectionFallback = () => (
+  <div className="p-4 sm:p-6 space-y-4 animate-pulse">
+    <div className="h-28 rounded-3xl bg-slate-200/70" />
+    <div className="grid grid-cols-2 gap-3">
+      <div className="h-24 rounded-2xl bg-slate-200/60" />
+      <div className="h-24 rounded-2xl bg-slate-200/60" />
+    </div>
+    <div className="h-44 rounded-3xl bg-slate-200/60" />
+  </div>
+);
 
 export default function App() {
   const [token, setToken] = useState<string | null>(localStorage.getItem('habit_mountain_token'));
-  const [currentUser, setCurrentUser] = useState<any | null>(null);
+  const [cachedAppState] = useState<AppCache | null>(() => readAppCache());
+  const [currentUser, setCurrentUser] = useState<any | null>(() => cachedAppState?.profile ?? null);
 
   const [currentTab, setTab] = useState<string>('home');
-  const [habits, setHabits] = useState<Habit[]>([]);
-  const [routines, setRoutines] = useState<Routine[]>([]);
-  const [userPoints, setUserPoints] = useState<number>(0);
-  const [appLoading, setAppLoading] = useState<boolean>(true);
+  const [habits, setHabits] = useState<Habit[]>(() => cachedAppState?.habits ?? []);
+  const [routines, setRoutines] = useState<Routine[]>(() => cachedAppState?.routines ?? []);
+  const [userPoints, setUserPoints] = useState<number>(() => cachedAppState?.userPoints ?? 0);
+  const [appLoading, setAppLoading] = useState<boolean>(() => Boolean(token && !cachedAppState));
 
   // Focused / Pinned Habits state for "Today's Focus"
   const [focusedHabitIds, setFocusedHabitIds] = useState<string[]>(() => {
@@ -160,6 +201,7 @@ export default function App() {
     try {
       const nextPoints = userPoints + points;
       setUserPoints(nextPoints);
+      writeAppCache({ profile: currentUser, habits, routines, userPoints: nextPoints });
       await api.syncJourney({ total_points: nextPoints });
     } catch (err: any) {
       console.error('Failed to sync points:', err);
@@ -219,22 +261,34 @@ export default function App() {
   const [isLogFoodModalOpen, setIsLogFoodModalOpen] = useState(false);
 
   // Fetch all user details, habits, routines on mounting/authentication
-  const loadAllData = async () => {
+  const loadAllData = async (options: { forceBlocking?: boolean } = {}) => {
     if (!token) {
       setAppLoading(false);
       return;
     }
-    setAppLoading(true);
+
+    const hasDataToRender = Boolean(currentUser || cachedAppState || habits.length > 0 || routines.length > 0);
+    if (options.forceBlocking || !hasDataToRender) {
+      setAppLoading(true);
+    }
+
     try {
-      const profile = await api.getProfile();
+      const [profile, hData, rData] = await Promise.all([
+        api.getProfile(),
+        api.getHabits(),
+        api.getRoutines(),
+      ]);
+
       setCurrentUser(profile);
       setUserPoints(profile.total_points || 0);
-
-      const hData = await api.getHabits();
       setHabits(hData);
-
-      const rData = await api.getRoutines();
       setRoutines(rData);
+      writeAppCache({
+        profile,
+        habits: hData,
+        routines: rData,
+        userPoints: profile.total_points || 0,
+      });
 
     } catch (err: any) {
       console.error('Error loading full-stack assets:', err);
@@ -263,18 +317,18 @@ export default function App() {
     setToken(newToken);
     setCurrentUser(user);
     setUserPoints(user.total_points || 0);
+    writeAppCache({ profile: user, habits: [], routines: [], userPoints: user.total_points || 0 });
   };
 
   const handleLogout = () => {
     localStorage.removeItem('habit_mountain_token');
+    localStorage.removeItem(APP_CACHE_KEY);
     setToken(null);
     setCurrentUser(null);
     setHabits([]);
     setRoutines([]);
     setUserPoints(0);
-  };
-
-  // Automated Routine Completion Handler Check
+  };  // Automated Routine Completion Handler Check
   useEffect(() => {
     if (!token || habits.length === 0 || routines.length === 0) return;
 
@@ -295,80 +349,152 @@ export default function App() {
     });
 
     if (routinesToUpdate.length > 0) {
-      const syncRoutinesCompletions = async () => {
-        try {
-          const nextPoints = userPoints + pointsBonus;
-          setUserPoints(nextPoints);
-          await api.syncJourney({ total_points: nextPoints });
+      // 1. Instant optimistic update for routine completion state & points
+      const updatedRoutines = routines.map((rt) => {
+        if (routinesToUpdate.some((u) => u.id === rt.id)) {
+          return {
+            ...rt,
+            completedHistory: {
+              ...rt.completedHistory,
+              [dateToday]: true,
+            },
+          };
+        }
+        return rt;
+      });
 
+      const nextPoints = userPoints + pointsBonus;
+      setUserPoints(nextPoints);
+      setRoutines(updatedRoutines);
+      writeAppCache({ profile: currentUser, habits, routines: updatedRoutines, userPoints: nextPoints });
+
+      // 2. Asynchronous background network sync
+      (async () => {
+        try {
+          await api.syncJourney({ total_points: nextPoints });
           for (const item of routinesToUpdate) {
             await api.setRoutineStatus(item.id, dateToday, true);
           }
-
-          const updatedRoutines = await api.getRoutines();
-          setRoutines(updatedRoutines);
-
-          setTimeout(() => {
-            alert(`⚡ SUMMIT CHAIN MASTERED!\nYou completed all tasks for routine and gained +${pointsBonus} bonus points!`);
-          }, 100);
-
         } catch (err) {
           console.error('Error synchronizing routine chains:', err);
         }
-      };
-
-      syncRoutinesCompletions();
+      })();
     }
   }, [habits, routines, token]);
 
-  // Handler: Log count/timer progress against a specific habit
+  // Handler: Log count/timer progress against a specific habit (Instant Optimistic UI)
   const handleLogHabit = async (id: string, value: number) => {
-    try {
-      const targetHabit = habits.find((h) => h.id === id);
-      if (!targetHabit) return;
+    const targetHabit = habits.find((h) => h.id === id);
+    if (!targetHabit) return;
 
-      const curToday = targetHabit.history[dateToday] || 0;
-      const newToday = curToday + value;
+    const curToday = targetHabit.history[dateToday] || 0;
+    const newToday = Math.max(0, curToday + value);
 
-      const wasCompleted = curToday >= targetHabit.target;
-      const nowCompleted = newToday >= targetHabit.target;
+    const wasCompleted = curToday >= targetHabit.target;
+    const nowCompleted = newToday >= targetHabit.target;
 
-      const isRoutineHabit = routines.some((r) => r.habitIds.includes(id));
-      let ptsAdd = 0;
-      if (!isRoutineHabit) {
-        if (nowCompleted && !wasCompleted) {
-          ptsAdd = targetHabit.points + 5;
-        } else if (!nowCompleted) {
-          ptsAdd = Math.min(targetHabit.points, 2);
-        }
+    const isRoutineHabit = routines.some((r) => r.habitIds.includes(id));
+    let ptsAdd = 0;
+    if (!isRoutineHabit) {
+      if (nowCompleted && !wasCompleted) {
+        ptsAdd = targetHabit.points + 5;
+      } else if (!nowCompleted && value > 0) {
+        ptsAdd = Math.min(targetHabit.points, 2);
       }
+    }
 
-      const nextPoints = userPoints + ptsAdd;
-      
+    const nextPoints = userPoints + ptsAdd;
+
+    // 1. Immediate optimistic UI state update (0ms delay)
+    const updatedHabits = habits.map((h) => {
+      if (h.id === id) {
+        return {
+          ...h,
+          history: {
+            ...h.history,
+            [dateToday]: newToday,
+          },
+        };
+      }
+      return h;
+    });
+
+    setHabits(updatedHabits);
+    if (ptsAdd > 0) {
+      setUserPoints(nextPoints);
+    }
+    writeAppCache({ profile: currentUser, habits: updatedHabits, routines, userPoints: nextPoints });
+
+    // 2. Fire-and-forget background server sync
+    try {
       await api.logHabit(id, dateToday, value);
-      
       if (ptsAdd > 0) {
         await api.syncJourney({ total_points: nextPoints });
-        setUserPoints(nextPoints);
       }
-
-      const updatedHabits = await api.getHabits();
-      setHabits(updatedHabits);
-
     } catch (err: any) {
-      console.error('Failed to sync logged progression:', err);
+      console.error('Failed to sync logged progression in background:', err);
       if (err.message && (
         err.message.includes('401') || 
         err.message.includes('403') || 
-        err.message.includes('404') || 
-        err.message.includes('expired') || 
-        err.message.includes('not found') ||
-        err.message.includes('profile') ||
-        err.message.includes('session')
+        err.message.includes('expired')
       )) {
         handleLogout();
-      } else {
-        alert('Network logging failure: ' + err.message);
+      }
+    }
+  };
+
+  // Handler: Batch log multiple habit updates atomically (Instant 0ms UI update)
+  const handleBatchLogHabits = async (updates: { id: string; value: number }[]) => {
+    if (!updates || updates.length === 0) return;
+
+    let ptsAddTotal = 0;
+    const updatedHabits = habits.map((h) => {
+      const up = updates.find((u) => u.id === h.id);
+      if (!up) return h;
+
+      const curToday = h.history[dateToday] || 0;
+      const newToday = Math.max(0, curToday + up.value);
+
+      const wasCompleted = curToday >= h.target;
+      const nowCompleted = newToday >= h.target;
+
+      const isRoutineHabit = routines.some((r) => r.habitIds.includes(h.id));
+      if (!isRoutineHabit) {
+        if (nowCompleted && !wasCompleted) {
+          ptsAddTotal += h.points + 5;
+        } else if (!nowCompleted && up.value > 0) {
+          ptsAddTotal += Math.min(h.points, 2);
+        }
+      }
+
+      return {
+        ...h,
+        history: {
+          ...h.history,
+          [dateToday]: newToday,
+        },
+      };
+    });
+
+    const nextPoints = userPoints + ptsAddTotal;
+
+    // 1. Single instant optimistic UI update across all habits
+    setHabits(updatedHabits);
+    if (ptsAddTotal > 0) {
+      setUserPoints(nextPoints);
+    }
+    writeAppCache({ profile: currentUser, habits: updatedHabits, routines, userPoints: nextPoints });
+
+    // 2. Async background sync in parallel
+    try {
+      await Promise.all(updates.map((u) => api.logHabit(u.id, dateToday, u.value)));
+      if (ptsAddTotal > 0) {
+        await api.syncJourney({ total_points: nextPoints });
+      }
+    } catch (err: any) {
+      console.error('Background batch sync failed:', err);
+      if (err.message && (err.message.includes('401') || err.message.includes('403') || err.message.includes('expired'))) {
+        handleLogout();
       }
     }
   };
@@ -460,13 +586,21 @@ export default function App() {
 
   const handleRefreshData = async () => {
     try {
-      const hData = await api.getHabits();
+      const [hData, rData, profile] = await Promise.all([
+        api.getHabits(),
+        api.getRoutines(),
+        api.getProfile(),
+      ]);
       setHabits(hData);
-      const rData = await api.getRoutines();
       setRoutines(rData);
-      const profile = await api.getProfile();
       setCurrentUser(profile);
       setUserPoints(profile.total_points || 0);
+      writeAppCache({
+        profile,
+        habits: hData,
+        routines: rData,
+        userPoints: profile.total_points || 0,
+      });
     } catch (err: any) {
       console.error('Error refreshing applet data:', err);
       if (err.message && (
@@ -533,7 +667,7 @@ export default function App() {
         locked_in_days: 0,
         consecutive_locked_in_streak: 0,
       });
-      await loadAllData();
+      await loadAllData({ forceBlocking: true });
       setTab('today');
       alert('⚡ 90-DAY MISSION RESET TO DAY 1!\nYour 90-day lock-in challenge has been restarted from today.');
     } catch (err: any) {
@@ -548,7 +682,7 @@ export default function App() {
       setAppLoading(true);
       try {
         await api.resetAllData();
-        await loadAllData();
+        await loadAllData({ forceBlocking: true });
         setTab('home');
         alert('All database tables successfully wiped & re-seeded to baseline values!');
       } catch (err: any) {
@@ -636,6 +770,7 @@ export default function App() {
         
         <main className="flex-1 overflow-y-auto pb-24 md:pb-8">
           <div className="w-full max-w-6xl mx-auto py-2 md:py-6">
+            <Suspense fallback={<SectionFallback />}>
             {currentTab === 'home' && (
               <HomeScreen
                 habits={habits}
@@ -643,6 +778,7 @@ export default function App() {
                 userPoints={userPoints}
                 dateToday={dateToday}
                 onLogHabit={handleLogHabit}
+                onBatchLogHabits={handleBatchLogHabits}
                 setTab={setTab}
                 onNavigateToRoutine={handleNavigateToRoutine}
                 currentUser={currentUser}
@@ -667,6 +803,7 @@ export default function App() {
                 routines={routines}
                 dateToday={dateToday}
                 onLogHabit={handleLogHabit}
+                onBatchLogHabits={handleBatchLogHabits}
                 userPoints={userPoints}
                 currentUser={currentUser}
                 nutritionToday={nutritionToday}
@@ -690,7 +827,6 @@ export default function App() {
                 currentUser={currentUser}
               />
             )}
-
             {currentTab === 'profile' && (
               <ProfileScreen
                 currentUser={currentUser}
@@ -702,6 +838,7 @@ export default function App() {
                 onResetDay1={handleResetMissionDay1}
               />
             )}
+            </Suspense>
           </div>
         </main>
 
@@ -766,25 +903,27 @@ export default function App() {
           it needs (habit creation, routine creation, food logging, points, custom
           goals) — paste CreateModal.tsx and I'll make sure each option routes to
           the right flow with the right pre-filled fields. */}
-      <CreateModal
-        isOpen={isPlusModalOpen}
-        onClose={() => setIsPlusModalOpen(false)}
-        openCreateHabit={() => setIsHabitModalOpen(true)}
-        openCreateRoutine={() => setIsRoutineModalOpen(true)}
-        onAddNutrition={handleAddNutrition}
-        onAddPoints={handleAddPoints}
-        onAddCustomGoal={handleAddCustomGoal}
-        nutritionTargets={nutritionTargets}
-        onUpdateNutritionTargets={handleUpdateNutritionTargets}
-        onOpenLogFood={() => setIsLogFoodModalOpen(true)}
-      />
+      <Suspense fallback={null}>
+        <CreateModal
+          isOpen={isPlusModalOpen}
+          onClose={() => setIsPlusModalOpen(false)}
+          openCreateHabit={() => setIsHabitModalOpen(true)}
+          openCreateRoutine={() => setIsRoutineModalOpen(true)}
+          onAddNutrition={handleAddNutrition}
+          onAddPoints={handleAddPoints}
+          onAddCustomGoal={handleAddCustomGoal}
+          nutritionTargets={nutritionTargets}
+          onUpdateNutritionTargets={handleUpdateNutritionTargets}
+          onOpenLogFood={() => setIsLogFoodModalOpen(true)}
+        />
 
-      <LogFoodModal
-        isOpen={isLogFoodModalOpen}
-        onClose={() => setIsLogFoodModalOpen(false)}
-        onAddFood={handleAddFood}
-        loggedFoodsHistory={loggedFoods}
-      />
+        <LogFoodModal
+          isOpen={isLogFoodModalOpen}
+          onClose={() => setIsLogFoodModalOpen(false)}
+          onAddFood={handleAddFood}
+          loggedFoodsHistory={loggedFoods}
+        />
+      </Suspense>
 
       <CreateHabitModal
         isOpen={isHabitModalOpen}
