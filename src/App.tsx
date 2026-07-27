@@ -13,7 +13,9 @@ import {
   Flame,
   Zap,
   Bell,
+  Layers as LayersIcon,
 } from 'lucide-react';
+import PillarsScreen from './components/PillarsScreen';
 
 // NOTE: DietScreen is no longer rendered as its own tab (see fix #4) — the diet
 // experience now lives inline on HomeScreen as the "Diet Log" card. We keep the
@@ -713,10 +715,11 @@ export default function App() {
 
   const { score: currentLiveMomentumScore } = calculateMomentum(habits);
 
-  // FIX #4: Diet is no longer a standalone tab — only 4 primary sections now.
+  // Nav items — now includes Pillars as a dedicated tab
   const navItems = [
     { id: 'home', label: 'Dashboard', icon: HomeIcon },
     { id: 'today', label: "Today's Focus", icon: CalendarIcon },
+    { id: 'pillars', label: 'Pillars', icon: LayersIcon },
     { id: 'progress', label: 'Progress Logs', icon: BarChartIcon },
     { id: 'profile', label: 'Profile Settings', icon: UserIcon },
   ];
@@ -819,6 +822,18 @@ export default function App() {
               />
             )}
 
+            {currentTab === 'pillars' && (
+              <PillarsScreen
+                habits={habits}
+                routines={routines}
+                pillarGoals={customGoals}
+                dateToday={dateToday}
+                onLogHabit={handleLogHabit}
+                onBatchLogHabits={handleBatchLogHabits}
+                onOpenCreateModal={() => setIsPlusModalOpen(true)}
+              />
+            )}
+
             {currentTab === 'progress' && (
               <ProgressScreen
                 habits={habits}
@@ -873,6 +888,16 @@ export default function App() {
               <PlusIcon className="w-6 h-6 stroke-[3px]" />
             </button>
           </div>
+
+          <button
+            onClick={() => setTab('pillars')}
+            className={`flex flex-col items-center justify-center flex-1 py-1 transition cursor-pointer ${
+              currentTab === 'pillars' ? 'text-[#12B886] scale-105' : 'text-gray-400 hover:text-gray-600'
+            }`}
+          >
+            <LayersIcon className="w-5 h-5 stroke-[2.5px]" />
+            <span className="text-[9px] font-black mt-1 uppercase tracking-wider">Pillars</span>
+          </button>
 
           <button
             onClick={() => setTab('progress')}

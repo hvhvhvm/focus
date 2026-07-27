@@ -1384,7 +1384,7 @@ export default function HomeScreen({
         <div className="bg-white rounded-2xl p-5 border border-gray-100 shadow-sm space-y-5">
           <div className="flex justify-between items-center">
             <h3 className="text-sm font-bold text-[#0F172A] uppercase tracking-wider">Pillars Overview</h3>
-            <button onClick={() => setTab('progress')} className="text-xs font-bold text-emerald-500 hover:text-emerald-600 transition cursor-pointer">
+            <button onClick={() => setTab('pillars')} className="text-xs font-bold text-emerald-500 hover:text-emerald-600 transition cursor-pointer">
               See Details
             </button>
           </div>
