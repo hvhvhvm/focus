@@ -25,6 +25,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import RoutineDetailsModal from './RoutineDetailsModal';
 import { EditHabitModal, EditRoutineModal } from './Modals';
 import { PILLAR_META, mapCategoryToPillar as mapToSharedPillar } from '../lib/pillars';
+import DailyScheduler from './DailyScheduler';
 
 // ─── HELPERS ────────────────────────────────────────────────────────────────
 
@@ -426,6 +427,24 @@ export default function TodayScreen({
 }: TodayScreenProps) {
 
   const [selectedDate, setSelectedDate] = useState<string>(dateToday);
+  const [modeTab, setModeTabState] = useState<'scheduler' | 'habits'>(() => {
+    try {
+      const saved = localStorage.getItem('focus_now_today_mode_tab');
+      if (saved === 'scheduler' || saved === 'habits') return saved;
+    } catch (e) {
+      console.error(e);
+    }
+    return 'scheduler';
+  });
+
+  const setModeTab = (val: 'scheduler' | 'habits') => {
+    setModeTabState(val);
+    try {
+      localStorage.setItem('focus_now_today_mode_tab', val);
+    } catch (e) {
+      console.error(e);
+    }
+  };
 
   // Auto-expand current time block; collapse others
   const currentBlock = getCurrentBlock();
@@ -615,20 +634,45 @@ export default function TodayScreen({
     <div className="w-full bg-[#F4F6FA] text-[#1E293B] flex flex-col font-sans min-h-screen">
 
       {/* ── TOP HEADER ─────────────────────────────────────────────────── */}
-      <div className="px-5 pt-6 pb-3 flex items-center justify-between select-none">
+      <div className="px-5 pt-6 pb-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3 select-none">
         <div>
           <h1 className="text-2xl font-black text-[#0F172A] tracking-tight leading-none">Today</h1>
           <p className="text-[11px] text-slate-400 font-semibold mt-1">Day {currentDay} of 90 · Lock-In Mode</p>
         </div>
-        <div className="flex items-center gap-2">
-          {dayStreak > 0 && (
-            <div className="flex items-center gap-1.5 bg-orange-500/10 text-orange-500 px-3 py-1.5 rounded-full border border-orange-500/15 text-xs font-bold">
-              <Flame className="w-3.5 h-3.5 fill-orange-500" />
-              <span>{dayStreak}d</span>
-            </div>
-          )}
+
+        {/* View Mode Toggle: Daily Scheduler vs Habits */}
+        <div className="flex items-center gap-1.5 bg-slate-200/80 p-1 rounded-2xl self-start sm:self-auto border border-slate-300/60">
+          <button
+            type="button"
+            onClick={() => setModeTab('scheduler')}
+            className={`px-3.5 py-1.5 rounded-xl text-xs font-black transition cursor-pointer ${
+              modeTab === 'scheduler'
+                ? 'bg-black text-white shadow-xs'
+                : 'text-slate-600 hover:text-black'
+            }`}
+          >
+            🗓️ Daily Scheduler
+          </button>
+          <button
+            type="button"
+            onClick={() => setModeTab('habits')}
+            className={`px-3.5 py-1.5 rounded-xl text-xs font-black transition cursor-pointer ${
+              modeTab === 'habits'
+                ? 'bg-black text-white shadow-xs'
+                : 'text-slate-600 hover:text-black'
+            }`}
+          >
+            ⚡ Habits & Routines
+          </button>
         </div>
       </div>
+
+      {modeTab === 'scheduler' ? (
+        <div className="px-4 py-3">
+          <DailyScheduler />
+        </div>
+      ) : (
+        <>
 
       {/* ── CALENDAR STRIP WITH NAVIGATION & COMPLETION RINGS ───────────── */}
       <div className="px-4 pb-2">
@@ -1057,6 +1101,8 @@ export default function TodayScreen({
           </motion.div>
         )}
       </AnimatePresence>
+      </>
+      )}
 
     </div>
   );

@@ -74,7 +74,24 @@ export default function App() {
   const [cachedAppState] = useState<AppCache | null>(() => readAppCache());
   const [currentUser, setCurrentUser] = useState<any | null>(() => cachedAppState?.profile ?? null);
 
-  const [currentTab, setTab] = useState<string>('home');
+  const [currentTab, setTabState] = useState<string>(() => {
+    try {
+      const saved = localStorage.getItem('focus_now_active_tab');
+      if (saved) return saved;
+    } catch (e) {
+      console.error(e);
+    }
+    return 'today';
+  });
+
+  const setTab = (tab: string) => {
+    setTabState(tab);
+    try {
+      localStorage.setItem('focus_now_active_tab', tab);
+    } catch (e) {
+      console.error(e);
+    }
+  };
   const [habits, setHabits] = useState<Habit[]>(() => cachedAppState?.habits ?? []);
   const [routines, setRoutines] = useState<Routine[]>(() => cachedAppState?.routines ?? []);
   const [userPoints, setUserPoints] = useState<number>(() => cachedAppState?.userPoints ?? 0);
