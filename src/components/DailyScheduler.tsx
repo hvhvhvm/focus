@@ -1133,7 +1133,7 @@ export default function DailyScheduler() {
                                   </div>
                                 </div>
 
-                                {/* Right Section: Choice Quick Chip + Hover Trash + Checkbox */}
+                                {/* Right Section: Choice Quick Chip + Hover Move + Delete + Checkbox */}
                                 <div className="flex items-center gap-1.5 shrink-0 ml-auto" onClick={(e) => e.stopPropagation()}>
                                   {/* If Choice Task and no choice selected yet, show quick chip */}
                                   {task.type === 'choice' && !task.selectedOption && (
@@ -1166,17 +1166,17 @@ export default function DailyScheduler() {
                                     </button>
                                   </div>
 
-                                  {/* Delete Task Button (Smooth hover fade-in) */}
+                                  {/* Clean Delete Option to the LEFT of Checkbox */}
                                   <button
                                     type="button"
                                     onClick={() => handleDeleteTask(task.id)}
-                                    className="opacity-0 group-hover:opacity-100 transition-opacity duration-150 text-neutral-400 hover:text-red-500 p-0.5 cursor-pointer"
+                                    className="text-neutral-300 hover:text-red-500 p-0.5 hover:bg-neutral-100 rounded transition cursor-pointer"
                                     title="Delete task"
                                   >
-                                    <Trash2 className="w-4 h-4" />
+                                    <Trash2 className="w-3.5 h-3.5" />
                                   </button>
 
-                                  {/* Far-Right Checkbox */}
+                                  {/* Checkbox */}
                                   <div
                                     onClick={() => handleToggleTask(task.id)}
                                     className={`w-5.5 h-5.5 rounded-md border-2 flex items-center justify-center cursor-pointer transition-all duration-200 ${
@@ -1237,42 +1237,46 @@ export default function DailyScheduler() {
                                                 {st.title}
                                               </span>
 
-                                              <div className="flex items-center gap-1 shrink-0">
-                                                <button
-                                                  type="button"
-                                                  onClick={(e) => {
-                                                    e.stopPropagation();
-                                                    handleMoveSubtask(task.id, st.id, 'up');
-                                                  }}
-                                                  className="text-neutral-300 hover:text-black p-0.5 cursor-pointer"
-                                                  title="Move Up"
-                                                >
-                                                  <ChevronUp className="w-3 h-3" />
-                                                </button>
-                                                <button
-                                                  type="button"
-                                                  onClick={(e) => {
-                                                    e.stopPropagation();
-                                                    handleMoveSubtask(task.id, st.id, 'down');
-                                                  }}
-                                                  className="text-neutral-300 hover:text-black p-0.5 cursor-pointer"
-                                                  title="Move Down"
-                                                >
-                                                  <ChevronDown className="w-3 h-3" />
-                                                </button>
+                                              <div className="flex items-center gap-1.5 shrink-0">
+                                                <div className="opacity-0 group-hover/sub:opacity-100 flex items-center gap-0.5">
+                                                  <button
+                                                    type="button"
+                                                    onClick={(e) => {
+                                                      e.stopPropagation();
+                                                      handleMoveSubtask(task.id, st.id, 'up');
+                                                    }}
+                                                    className="text-neutral-300 hover:text-black p-0.5 cursor-pointer"
+                                                    title="Move Up"
+                                                  >
+                                                    <ChevronUp className="w-3 h-3" />
+                                                  </button>
+                                                  <button
+                                                    type="button"
+                                                    onClick={(e) => {
+                                                      e.stopPropagation();
+                                                      handleMoveSubtask(task.id, st.id, 'down');
+                                                    }}
+                                                    className="text-neutral-300 hover:text-black p-0.5 cursor-pointer"
+                                                    title="Move Down"
+                                                  >
+                                                    <ChevronDown className="w-3 h-3" />
+                                                  </button>
+                                                </div>
+
+                                                {/* Subtask Delete option to the LEFT of Checkbox */}
                                                 <button
                                                   type="button"
                                                   onClick={(e) => {
                                                     e.stopPropagation();
                                                     handleDeleteSubtask(task.id, st.id);
                                                   }}
-                                                  className="text-neutral-300 hover:text-red-500 p-0.5 cursor-pointer"
+                                                  className="text-neutral-300 hover:text-red-500 p-0.5 hover:bg-neutral-100 rounded transition cursor-pointer"
                                                   title="Delete subtask"
                                                 >
-                                                  <X className="w-3.5 h-3.5" />
+                                                  <Trash2 className="w-3 h-3" />
                                                 </button>
 
-                                                {/* Sub-task RIGHT-END CHECKBOX */}
+                                                {/* Sub-task CHECKBOX */}
                                                 <div
                                                   className={`w-4 h-4 rounded border-2 flex items-center justify-center shrink-0 transition-all ${
                                                     st.completed
