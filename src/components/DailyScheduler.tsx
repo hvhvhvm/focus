@@ -438,7 +438,24 @@ export default function DailyScheduler() {
     setTasks(prev => prev.filter(t => t.id !== taskId));
   };
 
-  // Move task up or down within its timeBlock
+  // Move initial subtask up or down when creating a group task
+  const handleMoveInitialSubtask = (index: number, direction: 'up' | 'down') => {
+    setInlineTaskInput(prev => {
+      const updated = [...prev.initialSubtasks];
+      if (direction === 'up' && index <= 0) return prev;
+      if (direction === 'down' && index >= updated.length - 1) return prev;
+      const targetIdx = direction === 'up' ? index - 1 : index + 1;
+      const temp = updated[index];
+      updated[index] = updated[targetIdx];
+      updated[targetIdx] = temp;
+      return { ...prev, initialSubtasks: updated };
+    });
+  };
+
+  // Time block order list for cross-block task moving
+  const TIME_BLOCK_LIST: TimeBlock[] = ['Morning', 'Afternoon', 'Evening', 'Night'];
+
+  // Move task up or down within its timeBlock or across timeBlocks
   const handleMoveTask = (taskId: string, direction: 'up' | 'down') => {
     setTasks(prev => {
       const targetTask = prev.find(t => t.id === taskId);
@@ -449,22 +466,47 @@ export default function DailyScheduler() {
       );
       const blockIndex = sameBlockTasks.findIndex(t => t.id === taskId);
 
-      if (direction === 'up' && blockIndex <= 0) return prev;
-      if (direction === 'down' && blockIndex >= sameBlockTasks.length - 1) return prev;
+      if (direction === 'up') {
+        if (blockIndex > 0) {
+          const swapWithTask = sameBlockTasks[blockIndex - 1];
+          const newTasks = [...prev];
+          const idxA = newTasks.findIndex(t => t.id === targetTask.id);
+          const idxB = newTasks.findIndex(t => t.id === swapWithTask.id);
 
-      const swapWithTask = sameBlockTasks[direction === 'up' ? blockIndex - 1 : blockIndex + 1];
+          if (idxA !== -1 && idxB !== -1) {
+            const temp = newTasks[idxA];
+            newTasks[idxA] = newTasks[idxB];
+            newTasks[idxB] = temp;
+          }
+          return newTasks;
+        } else {
+          // At top of block -> move to bottom of previous block if exists
+          const curIdx = TIME_BLOCK_LIST.indexOf(targetTask.timeBlock);
+          if (curIdx <= 0) return prev;
+          const prevBlock = TIME_BLOCK_LIST[curIdx - 1];
+          return prev.map(t => t.id === taskId ? { ...t, timeBlock: prevBlock } : t);
+        }
+      } else {
+        if (blockIndex < sameBlockTasks.length - 1) {
+          const swapWithTask = sameBlockTasks[blockIndex + 1];
+          const newTasks = [...prev];
+          const idxA = newTasks.findIndex(t => t.id === targetTask.id);
+          const idxB = newTasks.findIndex(t => t.id === swapWithTask.id);
 
-      const newTasks = [...prev];
-      const idxA = newTasks.findIndex(t => t.id === targetTask.id);
-      const idxB = newTasks.findIndex(t => t.id === swapWithTask.id);
-
-      if (idxA !== -1 && idxB !== -1) {
-        const temp = newTasks[idxA];
-        newTasks[idxA] = newTasks[idxB];
-        newTasks[idxB] = temp;
+          if (idxA !== -1 && idxB !== -1) {
+            const temp = newTasks[idxA];
+            newTasks[idxA] = newTasks[idxB];
+            newTasks[idxB] = temp;
+          }
+          return newTasks;
+        } else {
+          // At bottom of block -> move to top of next block if exists
+          const curIdx = TIME_BLOCK_LIST.indexOf(targetTask.timeBlock);
+          if (curIdx < 0 || curIdx >= TIME_BLOCK_LIST.length - 1) return prev;
+          const nextBlock = TIME_BLOCK_LIST[curIdx + 1];
+          return prev.map(t => t.id === taskId ? { ...t, timeBlock: nextBlock } : t);
+        }
       }
-
-      return newTasks;
     });
   };
 
@@ -984,7 +1026,7 @@ export default function DailyScheduler() {
                               </span>
                               <div className="flex flex-wrap items-center gap-1.5">
                                 {inlineTaskInput.initialSubtasks.map((stText, idx) => (
-                                  <div key={idx} className="flex items-center gap-1 bg-white border border-neutral-200 rounded-lg px-2 py-0.5">
+                                  <div key={idx} className="flex items-center gap-1 bg-white border border-neutral-200 rounded-lg px-2 py-0.5 shadow-2xs">
                                     <input
                                       type="text"
                                       placeholder={`Sub-task ${idx + 1}...`}
@@ -999,6 +1041,26 @@ export default function DailyScheduler() {
                                       }}
                                       className="w-28 bg-transparent text-xs text-black placeholder:text-neutral-400 focus:outline-none font-bold"
                                     />
+                                    <div className="flex items-center gap-0 border-l border-neutral-200 pl-1">
+                                      <button
+                                        type="button"
+                                        disabled={idx === 0}
+                                        onClick={() => handleMoveInitialSubtask(idx, 'up')}
+                                        className="text-neutral-500 hover:text-black disabled:opacity-20 p-0.5 active:scale-90 transition-all cursor-pointer touch-manipulation"
+                                        title="Move up"
+                                      >
+                                        <ChevronUp className="w-3.5 h-3.5" />
+                                      </button>
+                                      <button
+                                        type="button"
+                                        disabled={idx === inlineTaskInput.initialSubtasks.length - 1}
+                                        onClick={() => handleMoveInitialSubtask(idx, 'down')}
+                                        className="text-neutral-500 hover:text-black disabled:opacity-20 p-0.5 active:scale-90 transition-all cursor-pointer touch-manipulation"
+                                        title="Move down"
+                                      >
+                                        <ChevronDown className="w-3.5 h-3.5" />
+                                      </button>
+                                    </div>
                                     {inlineTaskInput.initialSubtasks.length > 1 && (
                                       <button
                                         type="button"
@@ -1009,6 +1071,7 @@ export default function DailyScheduler() {
                                           }));
                                         }}
                                         className="text-neutral-400 hover:text-red-500 p-0.5 cursor-pointer"
+                                        title="Remove"
                                       >
                                         <X className="w-3 h-3" />
                                       </button>
@@ -1146,21 +1209,21 @@ export default function DailyScheduler() {
                                     </button>
                                   )}
 
-                                  {/* Move Up / Down Buttons (Smooth hover fade-in) */}
-                                  <div className="opacity-0 group-hover:opacity-100 transition-opacity duration-150 flex items-center gap-0.5">
+                                  {/* Move Up / Down Buttons (Close together pair) */}
+                                  <div className="opacity-80 sm:opacity-0 group-hover:opacity-100 transition-opacity duration-150 flex items-center gap-0 bg-neutral-100/80 border border-neutral-200/80 rounded-lg p-0.5 shrink-0">
                                     <button
                                       type="button"
                                       onClick={() => handleMoveTask(task.id, 'up')}
-                                      className="text-neutral-400 hover:text-black p-0.5 cursor-pointer"
-                                      title="Move Up"
+                                      className="text-neutral-500 hover:text-black active:scale-90 active:bg-neutral-200 p-0.5 rounded-md hover:bg-neutral-200 transition-all cursor-pointer touch-manipulation"
+                                      title="Move task up (in or across blocks)"
                                     >
                                       <ChevronUp className="w-3.5 h-3.5" />
                                     </button>
                                     <button
                                       type="button"
                                       onClick={() => handleMoveTask(task.id, 'down')}
-                                      className="text-neutral-400 hover:text-black p-0.5 cursor-pointer"
-                                      title="Move Down"
+                                      className="text-neutral-500 hover:text-black active:scale-90 active:bg-neutral-200 p-0.5 rounded-md hover:bg-neutral-200 transition-all cursor-pointer touch-manipulation"
+                                      title="Move task down (in or across blocks)"
                                     >
                                       <ChevronDown className="w-3.5 h-3.5" />
                                     </button>
@@ -1170,7 +1233,7 @@ export default function DailyScheduler() {
                                   <button
                                     type="button"
                                     onClick={() => handleDeleteTask(task.id)}
-                                    className="text-neutral-300 hover:text-red-500 p-0.5 hover:bg-neutral-100 rounded transition cursor-pointer"
+                                    className="text-neutral-300 hover:text-red-500 p-1 sm:p-0.5 hover:bg-neutral-100 rounded transition cursor-pointer touch-manipulation"
                                     title="Delete task"
                                   >
                                     <Trash2 className="w-3.5 h-3.5" />
@@ -1221,11 +1284,11 @@ export default function DailyScheduler() {
                                         </div>
 
                                         <div className="space-y-1.5">
-                                          {subtasks.map((st) => (
+                                          {subtasks.map((st, sIdx) => (
                                             <div
                                               key={st.id}
                                               onClick={() => handleToggleSubtask(task.id, st.id)}
-                                              className="flex items-center justify-between px-2.5 py-1.5 rounded-lg bg-white border border-neutral-200 hover:border-black/40 transition cursor-pointer"
+                                              className="group/sub flex items-center justify-between px-2.5 py-1.5 rounded-lg bg-white border border-neutral-200 hover:border-black/40 transition cursor-pointer"
                                             >
                                               <span
                                                 className={`text-xs font-bold ${
@@ -1238,28 +1301,31 @@ export default function DailyScheduler() {
                                               </span>
 
                                               <div className="flex items-center gap-1.5 shrink-0">
-                                                <div className="opacity-0 group-hover/sub:opacity-100 flex items-center gap-0.5">
+                                                {/* Small Up & Down arrows close together for subtask reordering */}
+                                                <div className="opacity-80 sm:opacity-0 group-hover/sub:opacity-100 flex items-center gap-0 bg-neutral-100/80 border border-neutral-200/80 rounded-md p-0.5 transition-opacity shrink-0">
                                                   <button
                                                     type="button"
+                                                    disabled={sIdx === 0}
                                                     onClick={(e) => {
                                                       e.stopPropagation();
                                                       handleMoveSubtask(task.id, st.id, 'up');
                                                     }}
-                                                    className="text-neutral-300 hover:text-black p-0.5 cursor-pointer"
-                                                    title="Move Up"
+                                                    className="text-neutral-500 hover:text-black disabled:opacity-20 p-0.5 cursor-pointer rounded hover:bg-neutral-200 active:scale-90 transition-all touch-manipulation"
+                                                    title="Move Sub-task Up"
                                                   >
-                                                    <ChevronUp className="w-3 h-3" />
+                                                    <ChevronUp className="w-3.5 h-3.5" />
                                                   </button>
                                                   <button
                                                     type="button"
+                                                    disabled={sIdx === subtasks.length - 1}
                                                     onClick={(e) => {
                                                       e.stopPropagation();
                                                       handleMoveSubtask(task.id, st.id, 'down');
                                                     }}
-                                                    className="text-neutral-300 hover:text-black p-0.5 cursor-pointer"
-                                                    title="Move Down"
+                                                    className="text-neutral-500 hover:text-black disabled:opacity-20 p-0.5 cursor-pointer rounded hover:bg-neutral-200 active:scale-90 transition-all touch-manipulation"
+                                                    title="Move Sub-task Down"
                                                   >
-                                                    <ChevronDown className="w-3 h-3" />
+                                                    <ChevronDown className="w-3.5 h-3.5" />
                                                   </button>
                                                 </div>
 
