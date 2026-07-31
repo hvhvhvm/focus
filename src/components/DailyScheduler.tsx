@@ -18,10 +18,11 @@ import {
   ListTree,
   Clock,
   X,
-  Pencil
+  Pencil,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { formatDateString, dateToday } from '../data';
+import type { NutritionTargets } from '../types';
 
 export type TimeBlock = 'Morning' | 'Afternoon' | 'Evening' | 'Night';
 
@@ -46,6 +47,17 @@ export interface SchedulerTask {
 }
 
 const STORAGE_KEY = 'focus_now_daily_scheduler_tasks_v9';
+const LOCAL_NUTRITION_TARGETS_KEY = 'focus_now_scheduler_protein_targets_v1';
+const APP_NUTRITION_TARGETS_KEY = '90day_nutrition_targets';
+const APP_LOGGED_FOODS_KEY = '90day_logged_foods';
+
+const DEFAULT_NUTRITION_TARGETS: NutritionTargets = {
+  protein: 150,
+  carbs: 200,
+  fats: 70,
+  fiber: 25,
+  calories: 2000,
+};
 
 export const DEFAULT_SPORTS_OPTIONS = [
   'Gym', 
@@ -177,7 +189,73 @@ const getCurrentTimeBlock = (): TimeBlock => {
   return 'Night';
 };
 
-export default function DailyScheduler() {
+const BLOCK_PROTEIN_TARGET_KEYS: Record<TimeBlock, 'morningProtein' | 'afternoonProtein' | 'eveningProtein' | 'nightProtein'> = {
+  Morning: 'morningProtein',
+  Afternoon: 'afternoonProtein',
+  Evening: 'eveningProtein',
+  Night: 'nightProtein',
+};
+
+const getBlockProteinGoal = (block: TimeBlock, targets: NutritionTargets) => {
+  const totalProtein = targets.protein || DEFAULT_NUTRITION_TARGETS.protein;
+  const defaults: Record<TimeBlock, number> = {
+    Morning: Math.round(totalProtein * 0.25),
+    Afternoon: Math.round(totalProtein * 0.35),
+    Evening: Math.round(totalProtein * 0.30),
+    Night: Math.round(totalProtein * 0.10),
+  };
+  return targets[BLOCK_PROTEIN_TARGET_KEYS[block]] ?? defaults[block];
+};
+
+const readStoredNutritionTargets = (): NutritionTargets => {
+  try {
+    const raw = localStorage.getItem(LOCAL_NUTRITION_TARGETS_KEY) || localStorage.getItem(APP_NUTRITION_TARGETS_KEY);
+    return raw ? { ...DEFAULT_NUTRITION_TARGETS, ...JSON.parse(raw) } : DEFAULT_NUTRITION_TARGETS;
+  } catch (e) {
+    console.error('Failed to load scheduler protein targets:', e);
+    return DEFAULT_NUTRITION_TARGETS;
+  }
+};
+
+const readStoredLoggedFoods = (): DailySchedulerProps['loggedFoods'] => {
+  try {
+    const raw = localStorage.getItem(APP_LOGGED_FOODS_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch (e) {
+    console.error('Failed to load scheduler food logs:', e);
+    return [];
+  }
+};
+
+const mergeTargets = (base: NutritionTargets, incoming?: NutritionTargets): NutritionTargets => {
+  if (!incoming) return base;
+  return {
+    ...base,
+    ...incoming,
+    morningProtein: incoming.morningProtein ?? base.morningProtein,
+    afternoonProtein: incoming.afternoonProtein ?? base.afternoonProtein,
+    eveningProtein: incoming.eveningProtein ?? base.eveningProtein,
+    nightProtein: incoming.nightProtein ?? base.nightProtein,
+  };
+};
+
+interface DailySchedulerProps {
+  /** Today's food log (used to compute per-block protein consumed) */
+  loggedFoods?: Array<{ id: string; name: string; protein: number; calories: number; mealType?: string; date?: string }>;
+  /** Protein & calorie targets, including block-specific goals */
+  nutritionTargets?: NutritionTargets;
+  /** Saves block protein goals into the existing nutrition target state */
+  onUpdateNutritionTargets?: (targets: NutritionTargets) => void;
+  /** Called when user clicks the food + button on a block - opens LogFoodModal pre-set to that block */
+  onOpenLogFoodForBlock?: (block: 'Morning' | 'Afternoon' | 'Evening' | 'Night') => void;
+}
+
+export default function DailyScheduler({
+  loggedFoods = [],
+  nutritionTargets,
+  onUpdateNutritionTargets,
+  onOpenLogFoodForBlock,
+}: DailySchedulerProps = {}) {
   const [selectedDate, setSelectedDate] = useState<string>(dateToday);
   const [tasks, setTasks] = useState<SchedulerTask[]>(() => {
     try {
@@ -205,7 +283,30 @@ export default function DailyScheduler() {
     'seed-3': false,
   });
 
+  const [localNutritionTargets, setLocalNutritionTargets] = useState<NutritionTargets>(() =>
+    mergeTargets(readStoredNutritionTargets(), nutritionTargets)
+  );
+  const [localLoggedFoods, setLocalLoggedFoods] = useState<DailySchedulerProps['loggedFoods']>(() => readStoredLoggedFoods());
+  const [editingProteinGoal, setEditingProteinGoal] = useState<{ block: TimeBlock; value: string } | null>(null);
 
+  const activeNutritionTargets = mergeTargets(localNutritionTargets, nutritionTargets);
+  const schedulerLoggedFoods = loggedFoods.length > 0 ? loggedFoods : (localLoggedFoods || []);
+
+  useEffect(() => {
+    if (nutritionTargets) {
+      setLocalNutritionTargets(prev => mergeTargets(prev, nutritionTargets));
+    }
+  }, [nutritionTargets]);
+
+  useEffect(() => {
+    const refreshFoodLogs = () => setLocalLoggedFoods(readStoredLoggedFoods());
+    window.addEventListener('focus', refreshFoodLogs);
+    window.addEventListener('storage', refreshFoodLogs);
+    return () => {
+      window.removeEventListener('focus', refreshFoodLogs);
+      window.removeEventListener('storage', refreshFoodLogs);
+    };
+  }, []);
 
   // Inline input state per timeBlock
   const [inlineTaskInput, setInlineTaskInput] = useState<{
@@ -261,6 +362,33 @@ export default function DailyScheduler() {
 
   const toggleExpandTask = (taskId: string) => {
     setExpandedTaskIds(prev => ({ ...prev, [taskId]: !prev[taskId] }));
+  };
+
+  const startEditingProteinGoal = (block: TimeBlock, currentGoal: number) => {
+    setEditingProteinGoal({ block, value: String(currentGoal) });
+  };
+
+  const handleSaveProteinGoal = () => {
+    if (!editingProteinGoal) return;
+
+    const parsed = Number.parseFloat(editingProteinGoal.value);
+    const nextGoal = Number.isFinite(parsed) ? Math.max(0, Math.round(parsed)) : 0;
+    const targetKey = BLOCK_PROTEIN_TARGET_KEYS[editingProteinGoal.block];
+    const nextTargets = {
+      ...activeNutritionTargets,
+      [targetKey]: nextGoal,
+    };
+
+    setLocalNutritionTargets(nextTargets);
+    try {
+      localStorage.setItem(LOCAL_NUTRITION_TARGETS_KEY, JSON.stringify(nextTargets));
+      localStorage.setItem(APP_NUTRITION_TARGETS_KEY, JSON.stringify(nextTargets));
+    } catch (e) {
+      console.error('Failed to save scheduler protein goal:', e);
+    }
+    onUpdateNutritionTargets?.(nextTargets);
+    showToast(`${editingProteinGoal.block} protein goal set to ${nextGoal}g`);
+    setEditingProteinGoal(null);
   };
 
   const tasksForSelectedDate = tasks.filter(t => t.date === selectedDate);
@@ -724,10 +852,10 @@ export default function DailyScheduler() {
                 className="p-4 flex items-center justify-between cursor-pointer hover:bg-neutral-50/80 transition select-none"
               >
                 <div className="flex items-center gap-3">
-                  <div className={`w-9 h-9 rounded-2xl flex items-center justify-center shadow-xs shrink-0 transition-colors ${
+                  <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 transition-colors ${
                     isCurrentTimeBlock 
-                      ? 'bg-emerald-500 text-white shadow-emerald-500/30' 
-                      : 'bg-black text-white'
+                      ? 'bg-black text-white ring-2 ring-neutral-300' 
+                      : 'bg-white text-black border border-neutral-300'
                   }`}>
                     <BlockIcon className="w-4.5 h-4.5 stroke-[2px]" />
                   </div>
@@ -747,7 +875,37 @@ export default function DailyScheduler() {
                   </div>
                 </div>
 
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-2 sm:gap-3">
+                  {selectedDate === dateToday && (() => {
+                    const todayFoods = schedulerLoggedFoods.filter(f => !f.date || f.date === dateToday);
+                    const blockP = todayFoods.reduce((s, f) => f.mealType === block ? s + (f.protein || 0) : s, 0);
+                    const blockGoal = getBlockProteinGoal(block, activeNutritionTargets);
+                    const pct = Math.min(100, blockGoal > 0 ? Math.round((blockP / blockGoal) * 100) : 0);
+
+                    return (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          startEditingProteinGoal(block, blockGoal);
+                        }}
+                        disabled={!onUpdateNutritionTargets}
+                        className="hidden sm:flex flex-col items-end gap-1 min-w-28 rounded-xl border border-neutral-200 bg-white px-3 py-1.5 text-left hover:border-black transition"
+                        title={`Edit ${meta.label} protein goal`}
+                      >
+                        <span className="text-[9px] font-black uppercase tracking-wider text-neutral-500">
+                          Protein
+                        </span>
+                        <span className="text-xs font-black text-black">
+                          {blockP}g / {blockGoal}g
+                        </span>
+                        <span className="h-1 w-full rounded-full bg-neutral-100 overflow-hidden">
+                          <span className="block h-full rounded-full bg-black transition-all duration-500" style={{ width: `${pct}%` }} />
+                        </span>
+                      </button>
+                    );
+                  })()}
+
                   {/* Item counter pill - BLACK & WHITE completed indicator when done */}
                   {isBlockAllDone ? (
                     <span className="text-xs font-black text-white bg-black px-2.5 py-1 rounded-full flex items-center gap-1 shadow-2xs">
@@ -760,7 +918,22 @@ export default function DailyScheduler() {
                     </span>
                   )}
 
-                  {/* Add Task Plus Icon */}
+                  {/* Diet log plus - only for today's date blocks */}
+                  {selectedDate === dateToday && onOpenLogFoodForBlock && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onOpenLogFoodForBlock(block);
+                      }}
+                      title={`Log protein and calories to ${meta.label}`}
+                      className="w-8 h-8 rounded-xl bg-white text-black border border-neutral-300 flex items-center justify-center hover:border-black active:scale-95 transition cursor-pointer"
+                    >
+                      <Plus className="w-4 h-4 stroke-[3px]" />
+                    </button>
+                  )}
+
+                  {/* Add Task Icon */}
                   <button
                     type="button"
                     onClick={(e) => {
@@ -775,7 +948,7 @@ export default function DailyScheduler() {
                     title="Add task to this section"
                     className="w-8 h-8 rounded-full bg-black text-white flex items-center justify-center hover:scale-110 active:scale-95 transition shadow-xs cursor-pointer"
                   >
-                    <Plus className="w-4 h-4 stroke-[3px]" />
+                    <FolderPlus className="w-4 h-4 stroke-[2.5px]" />
                   </button>
 
                   {/* Expand / Collapse Chevron */}
@@ -799,7 +972,101 @@ export default function DailyScheduler() {
                     className="border-t border-neutral-100 bg-white"
                   >
                     <div className="p-4 space-y-2.5">
-                      
+
+                      {/* Compact Protein Strip (only for today) */}
+                      {selectedDate === dateToday && (() => {
+                        const todayFoods = schedulerLoggedFoods.filter(f => !f.date || f.date === dateToday);
+                        const blockP = todayFoods.reduce((s, f) => f.mealType === block ? s + (f.protein || 0) : s, 0);
+                        const blockGoal = getBlockProteinGoal(block, activeNutritionTargets);
+                        const pct = Math.min(100, blockGoal > 0 ? Math.round((blockP / blockGoal) * 100) : 0);
+                        const isEditing = editingProteinGoal?.block === block;
+
+                        return (
+                          <div className="rounded-xl border border-neutral-200 bg-white px-3 py-2 shadow-xs mb-1">
+                            <div className="flex items-center gap-3">
+                              <div className="w-7 h-7 rounded-lg border border-neutral-300 bg-neutral-50 text-black flex items-center justify-center shrink-0">
+                                <span className="text-[10px] font-black">P</span>
+                              </div>
+
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center justify-between gap-2 mb-1.5">
+                                  <div className="min-w-0">
+                                    <div className="text-[10px] font-black uppercase tracking-wide text-black">Protein Goal</div>
+                                    <div className="text-[10px] font-bold text-neutral-500">{blockP}g logged in {meta.label}</div>
+                                  </div>
+
+                                  {isEditing ? (
+                                    <form
+                                      onSubmit={(e) => {
+                                        e.preventDefault();
+                                        handleSaveProteinGoal();
+                                      }}
+                                      className="flex items-center gap-1.5 shrink-0"
+                                    >
+                                      <input
+                                        type="number"
+                                        min="0"
+                                        value={editingProteinGoal.value}
+                                        onChange={(e) => setEditingProteinGoal({ block, value: e.target.value })}
+                                        onKeyDown={(e) => {
+                                          if (e.key === 'Escape') setEditingProteinGoal(null);
+                                        }}
+                                        className="w-14 h-7 rounded-lg border border-black bg-white px-2 text-xs font-black text-black text-center focus:outline-none"
+                                        autoFocus
+                                      />
+                                      <button
+                                        type="submit"
+                                        className="w-7 h-7 rounded-lg bg-black text-white flex items-center justify-center cursor-pointer active:scale-95"
+                                        title="Save protein goal"
+                                      >
+                                        <Check className="w-3.5 h-3.5 stroke-[3]" />
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => setEditingProteinGoal(null)}
+                                        className="w-7 h-7 rounded-lg border border-neutral-300 text-neutral-500 hover:text-black flex items-center justify-center cursor-pointer active:scale-95"
+                                        title="Cancel"
+                                      >
+                                        <X className="w-3.5 h-3.5 stroke-[3]" />
+                                      </button>
+                                    </form>
+                                  ) : (
+                                    <button
+                                      type="button"
+                                      onClick={() => startEditingProteinGoal(block, blockGoal)}
+                                      disabled={!onUpdateNutritionTargets}
+                                      className="h-7 rounded-lg border border-neutral-300 bg-white hover:border-black px-2 flex items-center gap-1.5 text-[10px] font-black text-black transition cursor-pointer shrink-0"
+                                      title={`Edit ${meta.label} protein goal`}
+                                    >
+                                      <span>{blockGoal}g</span>
+                                      <Pencil className="w-3 h-3" />
+                                    </button>
+                                  )}
+                                </div>
+
+                                <div className="flex items-center gap-2">
+                                  <div className="flex-1 h-1.5 rounded-full bg-neutral-100 overflow-hidden">
+                                    <div className="h-full rounded-full bg-black transition-all duration-500" style={{ width: `${pct}%` }} />
+                                  </div>
+                                  <span className="w-8 text-right text-[10px] font-black text-black">{pct}%</span>
+                                </div>
+                              </div>
+
+                              {onOpenLogFoodForBlock && (
+                                <button
+                                  type="button"
+                                  onClick={() => onOpenLogFoodForBlock(block)}
+                                  className="shrink-0 w-8 h-8 rounded-lg bg-black text-white flex items-center justify-center hover:bg-neutral-800 transition cursor-pointer active:scale-95"
+                                  title={`Log protein and calories to ${meta.label}`}
+                                >
+                                  <Plus className="w-4 h-4 stroke-[3]" />
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })()}
+
                       {/* Inline Input Box if active for this block */}
                       {inlineTaskInput.block === block && (
                         <motion.div
@@ -1479,3 +1746,6 @@ export default function DailyScheduler() {
     </div>
   );
 }
+
+
+

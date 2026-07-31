@@ -2,13 +2,15 @@ import React, { useState } from 'react';
 import { X, PlusCircle, Utensils, Search, Check, Star, Trash2, Plus } from 'lucide-react';
 import { LoggedFood } from './DietScreen';
 
-export type MealType = 'Breakfast' | 'Lunch' | 'Dinner' | 'Snack';
+export type MealType = 'Breakfast' | 'Lunch' | 'Dinner' | 'Snack' | 'Morning' | 'Afternoon' | 'Evening' | 'Night';
+export type TimeBlock = 'Morning' | 'Afternoon' | 'Evening' | 'Night';
 
 interface LogFoodModalProps {
   isOpen: boolean;
   onClose: () => void;
   onAddFood: (food: { name: string; protein: number; carbs: number; fats: number; fiber: number; calories: number; mealType?: MealType }) => void;
   loggedFoodsHistory?: LoggedFood[];
+  initialBlock?: TimeBlock;
 }
 
 export const MEAL_TYPES: { type: MealType; label: string; icon: string; bg: string; text: string; border: string }[] = [
@@ -17,6 +19,21 @@ export const MEAL_TYPES: { type: MealType; label: string; icon: string; bg: stri
   { type: 'Dinner', label: 'Dinner', icon: '🌙', bg: 'bg-indigo-50', text: 'text-indigo-700', border: 'border-indigo-200' },
   { type: 'Snack', label: 'Snack', icon: '🥨', bg: 'bg-purple-50', text: 'text-purple-700', border: 'border-purple-200' },
 ];
+
+export const TIME_BLOCKS: { block: TimeBlock; label: string; icon: string; bg: string; activeBg: string; text: string; border: string }[] = [
+  { block: 'Morning', label: 'Morning', icon: '🌅', bg: 'bg-amber-50', activeBg: 'bg-amber-500', text: 'text-amber-700', border: 'border-amber-300' },
+  { block: 'Afternoon', label: 'Afternoon', icon: '☀️', bg: 'bg-sky-50', activeBg: 'bg-sky-500', text: 'text-sky-700', border: 'border-sky-300' },
+  { block: 'Evening', label: 'Evening', icon: '🌆', bg: 'bg-orange-50', activeBg: 'bg-orange-500', text: 'text-orange-700', border: 'border-orange-300' },
+  { block: 'Night', label: 'Night', icon: '🌙', bg: 'bg-indigo-50', activeBg: 'bg-indigo-600', text: 'text-indigo-700', border: 'border-indigo-300' },
+];
+
+export const getAutoTimeBlock = (): TimeBlock => {
+  const h = new Date().getHours();
+  if (h >= 5 && h < 11.5) return 'Morning';
+  if (h >= 11.5 && h < 16.5) return 'Afternoon';
+  if (h >= 16.5 && h < 21.5) return 'Evening';
+  return 'Night';
+};
 
 export const getAutoMealType = (): MealType => {
   const h = new Date().getHours();
@@ -40,10 +57,14 @@ export default function LogFoodModal({
   onClose,
   onAddFood,
   loggedFoodsHistory = [],
+  initialBlock,
 }: LogFoodModalProps) {
   const [activeTab, setActiveTab] = useState<'quick' | 'custom'>('quick');
   const [searchQuery, setSearchQuery] = useState('');
   
+  // Selected time block for logging
+  const [selectedBlock, setSelectedBlock] = useState<TimeBlock>(() => initialBlock || getAutoTimeBlock());
+
   // Category filter for favorites tab (All, Breakfast, Lunch, Dinner, Snack)
   const [favCategoryFilter, setFavCategoryFilter] = useState<'All' | MealType>('All');
 
@@ -78,6 +99,12 @@ export default function LogFoodModal({
   // Visual feedback indicator
   const [loggedIndicator, setLoggedIndicator] = useState<{ name: string; mealType: MealType } | null>(null);
 
+  // Sync initialBlock changes (when re-opening modal for different block)
+  React.useEffect(() => {
+    if (initialBlock) setSelectedBlock(initialBlock);
+    else setSelectedBlock(getAutoTimeBlock());
+  }, [initialBlock, isOpen]);
+
   if (!isOpen) return null;
 
   const handleEstimateFavCalories = () => {
@@ -89,7 +116,8 @@ export default function LogFoodModal({
   };
 
   const handleQuickLog = (food: { name: string; protein: number; carbs?: number; fats?: number; fiber?: number; calories: number; mealType?: MealType }) => {
-    const assignedMeal: MealType = food.mealType || getAutoMealType();
+    // Always use the selected time block as mealType for time-block based logging
+    const assignedMeal: MealType = selectedBlock;
     onAddFood({
       name: food.name,
       protein: food.protein,
@@ -141,7 +169,8 @@ export default function LogFoodModal({
     e.preventDefault();
     if (!name.trim()) return;
 
-    const autoMeal = getAutoMealType();
+    // Use the selected block as mealType
+    const assignedMeal: MealType = selectedBlock;
 
     const customFood = {
       name: name.trim(),
@@ -150,7 +179,7 @@ export default function LogFoodModal({
       fats: 0,
       fiber: 0,
       calories: Math.max(0, parseFloat(calories) || 0),
-      mealType: autoMeal,
+      mealType: assignedMeal,
     };
 
     onAddFood(customFood);
@@ -164,7 +193,7 @@ export default function LogFoodModal({
         fats: 0,
         fiber: 0,
         calories: customFood.calories,
-        mealType: autoMeal,
+        mealType: assignedMeal,
         emoji: '⭐'
       };
       const updated = [newFav, ...favorites];
@@ -175,7 +204,7 @@ export default function LogFoodModal({
     setName('');
     setSaveToFavFromCustom(false);
 
-    setLoggedIndicator({ name: name.trim(), mealType: autoMeal });
+    setLoggedIndicator({ name: name.trim(), mealType: assignedMeal });
     setTimeout(() => {
       setLoggedIndicator(null);
     }, 1800);
@@ -207,7 +236,7 @@ export default function LogFoodModal({
             </div>
             <div>
               <h2 className="text-lg sm:text-xl font-black text-slate-950 tracking-tight leading-none">Log Food Item</h2>
-              <p className="text-xs text-gray-500 font-medium mt-1">Quick log favorite meal slots or add custom food entry</p>
+              <p className="text-xs text-gray-500 font-medium mt-1">Select a time block then log your food</p>
             </div>
           </div>
           <button 
@@ -218,12 +247,39 @@ export default function LogFoodModal({
           </button>
         </div>
 
+        {/* ⏰ Time Block Selector */}
+        <div className="shrink-0">
+          <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1.5">Logging to time block</p>
+          <div className="grid grid-cols-4 gap-1.5">
+            {TIME_BLOCKS.map(({ block, label, icon }) => {
+              const isActive = selectedBlock === block;
+              const blockColors: Record<TimeBlock, string> = {
+                Morning: isActive ? 'bg-amber-500 border-amber-500 text-white shadow-amber-500/30' : 'bg-amber-50 border-amber-200 text-amber-700 hover:bg-amber-100',
+                Afternoon: isActive ? 'bg-sky-500 border-sky-500 text-white shadow-sky-500/30' : 'bg-sky-50 border-sky-200 text-sky-700 hover:bg-sky-100',
+                Evening: isActive ? 'bg-orange-500 border-orange-500 text-white shadow-orange-500/30' : 'bg-orange-50 border-orange-200 text-orange-700 hover:bg-orange-100',
+                Night: isActive ? 'bg-indigo-600 border-indigo-600 text-white shadow-indigo-600/30' : 'bg-indigo-50 border-indigo-200 text-indigo-700 hover:bg-indigo-100',
+              };
+              return (
+                <button
+                  key={block}
+                  type="button"
+                  onClick={() => setSelectedBlock(block)}
+                  className={`flex flex-col items-center py-2 rounded-xl border font-black text-[10px] transition-all cursor-pointer ${isActive ? 'shadow-md' : ''} ${blockColors[block]}`}
+                >
+                  <span className="text-base leading-none mb-0.5">{icon}</span>
+                  <span>{label}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
         {/* Visual success toast notification */}
         {loggedIndicator && (
           <div className="bg-emerald-600 text-white text-xs font-extrabold px-4 py-2.5 rounded-2xl flex items-center justify-between shadow-lg border border-emerald-500 shrink-0 animate-fade-in">
             <div className="flex items-center gap-2 min-w-0">
               <Check className="w-4 h-4 text-white stroke-[3px] shrink-0" />
-              <span className="truncate">Logged <strong>+1 {loggedIndicator.name}</strong> ({loggedIndicator.mealType})!</span>
+              <span className="truncate">Logged <strong>+1 {loggedIndicator.name}</strong> to {loggedIndicator.mealType}!</span>
             </div>
             <span className="text-[9px] bg-white/20 text-white px-2 py-0.5 rounded-lg uppercase tracking-wider font-extrabold shrink-0 ml-2">Added Today</span>
           </div>
@@ -486,7 +542,7 @@ export default function LogFoodModal({
                                 }}
                                 className="text-[10px] bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-black px-2.5 py-1 rounded-xl shadow-xs transition cursor-pointer"
                               >
-                                + LOG ({mealType})
+                                + LOG ({selectedBlock})
                               </button>
                             </div>
                           </div>

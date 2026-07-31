@@ -61,6 +61,10 @@ interface HomeScreenProps {
     fats: number;
     fiber: number;
     calories: number;
+    morningProtein?: number;
+    afternoonProtein?: number;
+    eveningProtein?: number;
+    nightProtein?: number;
   };
   onUpdateNutritionTargets?: (targets: {
     protein: number;
@@ -68,11 +72,16 @@ interface HomeScreenProps {
     fats: number;
     fiber: number;
     calories: number;
+    morningProtein?: number;
+    afternoonProtein?: number;
+    eveningProtein?: number;
+    nightProtein?: number;
   }) => void;
   // NEW: today's actual food entries + remove handler, so the diet card can act as a real log
   todaysFoodLog?: LoggedFood[];
   onRemoveFood?: (id: string) => void;
   onOpenLogFood: () => void;
+  onOpenLogFoodForBlock?: (block: 'Morning' | 'Afternoon' | 'Evening' | 'Night') => void;
   onOpenCreateModal: () => void;
   onRefresh?: () => Promise<void>;
   pillarGoals?: PillarGoal[];
@@ -103,10 +112,32 @@ export default function HomeScreen({
   onToggleFocusHabit,
   onUpdateNutritionTargets,
   onResetDietProgress,
+  onOpenLogFoodForBlock,
 }: HomeScreenProps) {
   const [editingTargetKey, setEditingTargetKey] = useState<'protein' | 'calories' | 'water' | null>(null);
   const [targetInputValue, setTargetInputValue] = useState<string>('');
   const [waterMlState, setWaterMlState] = useState<number>(() => getWaterIntakeForDate(dateToday));
+
+  // Block-specific protein goal editing from HomeScreen
+  const [editingHomeBlock, setEditingHomeBlock] = useState<'Morning' | 'Afternoon' | 'Evening' | 'Night' | null>(null);
+  const [homeBlockGoalInput, setHomeBlockGoalInput] = useState('');
+
+  const handleSaveHomeBlockGoal = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingHomeBlock || !onUpdateNutritionTargets) return;
+    const val = Math.max(0, parseFloat(homeBlockGoalInput) || 0);
+    const keyMap: Record<string, string> = {
+      Morning: 'morningProtein',
+      Afternoon: 'afternoonProtein',
+      Evening: 'eveningProtein',
+      Night: 'nightProtein',
+    };
+    onUpdateNutritionTargets({
+      ...targets,
+      [keyMap[editingHomeBlock]]: val,
+    });
+    setEditingHomeBlock(null);
+  };
 
   const handleQuickWaterAddHome = (amountMl: number) => {
     const updated = addWaterIntakeForDate(dateToday, amountMl);
@@ -1062,6 +1093,153 @@ export default function HomeScreen({
                   </div>
                 </div>
               )}
+
+              {/* Total Protein Progress Bar (compact) */}
+              {(() => {
+                const totalP = nutritionToday.protein;
+                const goalP = targets.protein;
+                const pct = Math.min(100, Math.round((totalP / Math.max(1, goalP)) * 100));
+                const remaining = Math.max(0, goalP - totalP);
+                const proteinMet = totalP >= goalP;
+                const calMet = nutritionToday.calories >= targets.calories;
+
+                // Block protein totals from today's food log
+                const blockProteinOf = (block: 'Morning' | 'Afternoon' | 'Evening' | 'Night') =>
+                  todaysFoodLog.reduce((sum, f) => (f.mealType === block ? sum + f.protein : sum), 0);
+
+                // Per-block protein goals (fall back to proportional split of total)
+                const totalProteinGoal = targets.protein || 150;
+                const blockGoalsMap: Record<'Morning' | 'Afternoon' | 'Evening' | 'Night', number> = {
+                  Morning: targets.morningProtein ?? Math.round(totalProteinGoal * 0.25),
+                  Afternoon: targets.afternoonProtein ?? Math.round(totalProteinGoal * 0.35),
+                  Evening: targets.eveningProtein ?? Math.round(totalProteinGoal * 0.30),
+                  Night: targets.nightProtein ?? Math.round(totalProteinGoal * 0.10),
+                };
+
+                const blockDefs: Array<{ key: 'Morning' | 'Afternoon' | 'Evening' | 'Night'; icon: string; bar: string; btnBg: string; label: string; textColor: string; bg: string; border: string }> = [
+                  { key: 'Morning', icon: '🌅', label: 'Morning', bar: 'bg-gradient-to-r from-amber-400 to-orange-400', btnBg: 'bg-amber-500 hover:bg-amber-600 shadow-amber-400/30', textColor: 'text-amber-700', bg: 'bg-amber-50', border: 'border-amber-200' },
+                  { key: 'Afternoon', icon: '☀️', label: 'Afternoon', bar: 'bg-gradient-to-r from-sky-400 to-blue-400', btnBg: 'bg-sky-500 hover:bg-sky-600 shadow-sky-400/30', textColor: 'text-sky-700', bg: 'bg-sky-50', border: 'border-sky-200' },
+                  { key: 'Evening', icon: '🌆', label: 'Evening', bar: 'bg-gradient-to-r from-orange-400 to-rose-400', btnBg: 'bg-orange-500 hover:bg-orange-600 shadow-orange-400/30', textColor: 'text-orange-700', bg: 'bg-orange-50', border: 'border-orange-200' },
+                  { key: 'Night', icon: '🌙', label: 'Night', bar: 'bg-gradient-to-r from-indigo-500 to-violet-500', btnBg: 'bg-indigo-600 hover:bg-indigo-700 shadow-indigo-500/30', textColor: 'text-indigo-700', bg: 'bg-indigo-50', border: 'border-indigo-200' },
+                ];
+
+                return (
+                  <div className="mt-3 space-y-2.5">
+                    {/* Total Protein Bar — prominent card */}
+                    <div className="bg-gradient-to-r from-emerald-50 via-teal-50/60 to-emerald-50 border border-emerald-200/70 rounded-2xl p-3.5 relative overflow-hidden">
+                      <div className="absolute top-0 right-0 w-20 h-20 bg-emerald-400/5 rounded-full blur-2xl pointer-events-none" />
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-base">🥩</span>
+                          <span className="text-xs font-black text-emerald-900">Total Protein</span>
+                          <span className="text-[9px] font-black text-emerald-600 bg-emerald-100 border border-emerald-200 px-1.5 py-0.5 rounded-full">{pct}%</span>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          {proteinMet && calMet ? (
+                            <span className="text-[9px] font-black text-white bg-gradient-to-r from-emerald-500 to-teal-500 px-2 py-0.5 rounded-full shadow-sm animate-pulse">🎉 Perfect Day!</span>
+                          ) : (
+                            <span className="text-[9px] font-bold text-slate-500">{remaining > 0 ? `${remaining}g left` : '✅ Goal Met!'}</span>
+                          )}
+                        </div>
+                      </div>
+                      <div className="flex items-baseline gap-1 mb-1.5">
+                        <span className="text-xl font-black text-emerald-700">{totalP}</span>
+                        <span className="text-[10px] text-slate-400 font-semibold">g / {goalP}g protein</span>
+                      </div>
+                      <div className="w-full bg-white/80 h-2.5 rounded-full overflow-hidden">
+                        <div className="h-full rounded-full bg-gradient-to-r from-emerald-400 via-teal-400 to-emerald-500 transition-all duration-700 relative" style={{ width: `${pct}%` }}>
+                          {pct > 15 && <div className="absolute right-1 top-0.5 bottom-0.5 w-0.5 bg-white/50 rounded-full" />}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Block Goal Edit Modal (from HomeScreen) */}
+                    {editingHomeBlock && (
+                      <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center z-50 p-4 animate-fade-in select-none">
+                        <div className="bg-white rounded-3xl p-5 max-w-xs w-full shadow-2xl border border-slate-100 space-y-4">
+                          <div className="flex justify-between items-center">
+                            <h3 className="text-sm font-black text-slate-900">
+                              {editingHomeBlock} Protein Goal
+                            </h3>
+                            <button onClick={() => setEditingHomeBlock(null)} className="p-1 text-slate-400 hover:text-slate-600 rounded-full cursor-pointer">
+                              <X className="w-4 h-4" />
+                            </button>
+                          </div>
+                          <form onSubmit={handleSaveHomeBlockGoal} className="space-y-3">
+                            <div>
+                              <label className="text-[10px] font-black text-slate-400 uppercase block mb-1">Protein Target (g)</label>
+                              <input
+                                type="number"
+                                min="0"
+                                value={homeBlockGoalInput}
+                                onChange={e => setHomeBlockGoalInput(e.target.value)}
+                                className="w-full bg-slate-50 border border-slate-200 px-3.5 py-2.5 rounded-xl text-sm font-bold text-slate-900 focus:outline-none focus:border-emerald-500"
+                                required
+                                autoFocus
+                              />
+                            </div>
+                            <div className="flex gap-2">
+                              <button type="button" onClick={() => setEditingHomeBlock(null)} className="flex-1 px-3 py-2 rounded-xl text-xs font-bold text-slate-500 hover:bg-slate-100 cursor-pointer">Cancel</button>
+                              <button type="submit" className="flex-1 px-4 py-2 rounded-xl text-xs font-black bg-emerald-600 hover:bg-emerald-700 text-white shadow-md cursor-pointer">Save Goal</button>
+                            </div>
+                          </form>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* 4 Block tiles: header = tap to edit goal, + button = log food */}
+                    <div className="grid grid-cols-2 gap-2">
+                      {blockDefs.map(({ key, icon, label, bar, btnBg, textColor, bg, border }) => {
+                        const bp = blockProteinOf(key);
+                        const blockGoal = blockGoalsMap[key];
+                        const blockPct = Math.min(100, Math.round((bp / Math.max(1, blockGoal)) * 100));
+                        const blockMet = bp >= blockGoal;
+                        return (
+                          <div key={key} className={`${bg} ${border} border rounded-2xl p-3 flex flex-col gap-1.5 relative overflow-hidden`}>
+                            {/* Header: tap to edit goal */}
+                            <div className="flex items-center justify-between">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setEditingHomeBlock(key);
+                                  setHomeBlockGoalInput(String(blockGoal));
+                                }}
+                                className={`flex items-center gap-1.5 cursor-pointer group`}
+                                title={`Edit ${label} protein goal`}
+                              >
+                                <span className="text-sm">{icon}</span>
+                                <span className={`text-[10px] font-black uppercase tracking-wide ${textColor}`}>{label}</span>
+                                <svg className={`w-2.5 h-2.5 ${textColor} opacity-40 group-hover:opacity-100 transition`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
+                              </button>
+                              {/* + Log food button */}
+                              <button
+                                type="button"
+                                onClick={() => onOpenLogFoodForBlock ? onOpenLogFoodForBlock(key) : onOpenLogFood()}
+                                className={`w-6 h-6 rounded-lg flex items-center justify-center text-white font-black shadow-md transition active:scale-90 cursor-pointer text-xs ${btnBg}`}
+                                title={`Log food to ${label}`}
+                              >
+                                <Plus className="w-3.5 h-3.5 stroke-[3]" />
+                              </button>
+                            </div>
+
+                            {/* Stats */}
+                            <div>
+                              <div className="flex items-baseline gap-0.5">
+                                <span className={`text-base font-black ${textColor}`}>{bp}</span>
+                                <span className="text-[9px] text-slate-400 font-semibold">g / {blockGoal}g</span>
+                                {blockMet && <span className="text-[8px] font-black text-emerald-600 ml-1">✅</span>}
+                              </div>
+                              <div className="w-full bg-white/70 h-1.5 rounded-full overflow-hidden mt-0.5">
+                                <div className={`${bar} h-full rounded-full transition-all duration-500`} style={{ width: `${blockPct}%` }} />
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })()}
 
               {/* Log Food Button */}
               <div className="mt-3.5">

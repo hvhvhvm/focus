@@ -35,7 +35,7 @@ export interface LoggedFood {
   calories: number;
   timestamp: string;
   date?: string;
-  mealType?: 'Breakfast' | 'Lunch' | 'Dinner' | 'Snack';
+  mealType?: 'Breakfast' | 'Lunch' | 'Dinner' | 'Snack' | 'Morning' | 'Afternoon' | 'Evening' | 'Night';
 }
 
 export interface DietScreenProps {
@@ -52,14 +52,19 @@ export interface DietScreenProps {
     fats: number;
     fiber: number;
     calories: number;
+    morningProtein?: number;
+    afternoonProtein?: number;
+    eveningProtein?: number;
+    nightProtein?: number;
   };
   loggedFoods: LoggedFood[];
   onAddFood: (food: Omit<LoggedFood, 'id' | 'timestamp'>) => void;
   onRemoveFood: (id: string) => void;
-  onUpdateTargets: (targets: { protein: number; carbs: number; fats: number; fiber: number; calories: number }) => void;
+  onUpdateTargets: (targets: { protein: number; carbs: number; fats: number; fiber: number; calories: number; morningProtein?: number; afternoonProtein?: number; eveningProtein?: number; nightProtein?: number }) => void;
   onClearLogs: () => void;
   onBack?: () => void;
   dateToday?: string;
+  onOpenLogFoodForBlock?: (block: 'Morning' | 'Afternoon' | 'Evening' | 'Night') => void;
 }
 
 interface FavoriteFoodItem {
@@ -83,6 +88,7 @@ export default function DietScreen({
   onClearLogs,
   onBack,
   dateToday = new Date().toISOString().split('T')[0],
+  onOpenLogFoodForBlock,
 }: DietScreenProps) {
   // Diet Preferences state (controls visible metrics on dashboard and diet screen)
   const [prefs, setPrefs] = useState<DietPreferences>(() => getDietPreferences());
@@ -98,6 +104,19 @@ export default function DietScreen({
   const [editFats, setEditFats] = useState(String(nutritionTargets.fats));
   const [editFiber, setEditFiber] = useState(String(nutritionTargets.fiber));
   const [editCalories, setEditCalories] = useState(String(nutritionTargets.calories));
+
+  // Block-specific protein goal editing
+  const [editingBlockGoal, setEditingBlockGoal] = useState<'Morning' | 'Afternoon' | 'Evening' | 'Night' | null>(null);
+  const [blockGoalInput, setBlockGoalInput] = useState('');
+
+  // Block-specific protein goals (with defaults proportional to total)
+  const totalProtein = nutritionTargets.protein || 150;
+  const blockGoals = {
+    Morning: nutritionTargets.morningProtein ?? Math.round(totalProtein * 0.25),
+    Afternoon: nutritionTargets.afternoonProtein ?? Math.round(totalProtein * 0.35),
+    Evening: nutritionTargets.eveningProtein ?? Math.round(totalProtein * 0.30),
+    Night: nutritionTargets.nightProtein ?? Math.round(totalProtein * 0.10),
+  };
 
   // Favorites state
   const [favorites, setFavorites] = useState<FavoriteFoodItem[]>(() => {
@@ -147,9 +166,31 @@ export default function DietScreen({
       fats: Math.max(0, parseFloat(editFats) || 0),
       fiber: Math.max(0, parseFloat(editFiber) || 0),
       calories: Math.max(0, parseFloat(editCalories) || 0),
+      morningProtein: nutritionTargets.morningProtein,
+      afternoonProtein: nutritionTargets.afternoonProtein,
+      eveningProtein: nutritionTargets.eveningProtein,
+      nightProtein: nutritionTargets.nightProtein,
     });
     setIsEditingGoals(false);
     showToast('Nutrient goals updated! 🎯');
+  };
+
+  const handleSaveBlockGoal = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingBlockGoal) return;
+    const val = Math.max(0, parseFloat(blockGoalInput) || 0);
+    const keyMap: Record<string, string> = {
+      Morning: 'morningProtein',
+      Afternoon: 'afternoonProtein',
+      Evening: 'eveningProtein',
+      Night: 'nightProtein',
+    };
+    onUpdateTargets({
+      ...nutritionTargets,
+      [keyMap[editingBlockGoal]]: val,
+    });
+    setEditingBlockGoal(null);
+    showToast(`${editingBlockGoal} protein goal set to ${val}g! 🎯`);
   };
 
   const handleLogCustom = (e: React.FormEvent) => {
@@ -435,6 +476,201 @@ export default function DietScreen({
           </form>
         </div>
       )}
+
+      {/* === TOTAL DIET PROTEIN PROGRESS BAR === */}
+      {(() => {
+        const totalP = nutritionToday.protein;
+        const goalP = nutritionTargets.protein || 150;
+        const totalCal = nutritionToday.calories;
+        const goalCal = nutritionTargets.calories || 2000;
+        const pct = Math.min(100, Math.round((totalP / goalP) * 100));
+        const remaining = Math.max(0, goalP - totalP);
+        const proteinMet = totalP >= goalP;
+        const calMet = totalCal >= goalCal;
+        const perfectDay = proteinMet && calMet;
+
+        // Time block data
+        const blockDefs: Array<{ key: 'Morning' | 'Afternoon' | 'Evening' | 'Night'; label: string; icon: string; color: string; bar: string; border: string; bg: string; textColor: string }> = [
+          { key: 'Morning', label: 'Morning', icon: '🌅', color: 'text-amber-700', bar: 'bg-gradient-to-r from-amber-400 to-orange-400', border: 'border-amber-200', bg: 'bg-amber-50', textColor: 'text-amber-800' },
+          { key: 'Afternoon', label: 'Afternoon', icon: '☀️', color: 'text-sky-700', bar: 'bg-gradient-to-r from-sky-400 to-blue-400', border: 'border-sky-200', bg: 'bg-sky-50', textColor: 'text-sky-800' },
+          { key: 'Evening', label: 'Evening', icon: '🌆', color: 'text-orange-700', bar: 'bg-gradient-to-r from-orange-400 to-rose-400', border: 'border-orange-200', bg: 'bg-orange-50', textColor: 'text-orange-800' },
+          { key: 'Night', label: 'Night', icon: '🌙', color: 'text-indigo-700', bar: 'bg-gradient-to-r from-indigo-500 to-violet-500', border: 'border-indigo-200', bg: 'bg-indigo-50', textColor: 'text-indigo-800' },
+        ];
+
+        const blockProtein = (block: 'Morning' | 'Afternoon' | 'Evening' | 'Night') =>
+          loggedFoods.reduce((sum, f) => (f.mealType === block ? sum + f.protein : sum), 0);
+
+        const blockItems = (block: 'Morning' | 'Afternoon' | 'Evening' | 'Night') =>
+          loggedFoods.filter(f => f.mealType === block);
+
+        return (
+          <>
+            {/* Total Protein Bar */}
+            <div className="bg-white rounded-3xl p-5 border border-emerald-100 shadow-sm relative overflow-hidden" style={{ boxShadow: '0 4px 24px -4px rgba(16,185,129,0.13)' }}>
+              <div className="absolute top-0 right-0 w-32 h-32 bg-emerald-400/5 rounded-full blur-3xl pointer-events-none" />
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-9 h-9 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center">
+                    <span className="text-lg">🥩</span>
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-black text-slate-900 tracking-tight">Total Diet Protein</h3>
+                    <p className="text-[9px] font-bold text-emerald-600 uppercase tracking-wider">DAILY PROTEIN PROGRESS</p>
+                  </div>
+                </div>
+                {perfectDay && (
+                  <div className="flex items-center gap-1.5 bg-gradient-to-r from-emerald-500 to-teal-500 text-white text-[10px] font-black px-3 py-1.5 rounded-full shadow-md shadow-emerald-500/30 animate-pulse">
+                    🎉 Perfect Diet Day!
+                  </div>
+                )}
+              </div>
+
+              <div className="flex items-end justify-between mb-2">
+                <div className="flex items-baseline gap-1.5">
+                  <span className="text-3xl font-black text-emerald-700">{totalP}</span>
+                  <span className="text-sm font-bold text-slate-400">g / {goalP}g</span>
+                  <span className="text-xs font-black text-emerald-600 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full ml-1">{pct}%</span>
+                </div>
+                <div className="text-right">
+                  {remaining > 0 ? (
+                    <span className="text-xs font-black text-slate-500">{remaining}g remaining</span>
+                  ) : (
+                    <span className="text-xs font-black text-emerald-600">✅ Goal Reached!</span>
+                  )}
+                </div>
+              </div>
+
+              <div className="w-full bg-slate-100 h-3 rounded-full overflow-hidden">
+                <div
+                  className="h-full rounded-full bg-gradient-to-r from-emerald-400 via-teal-400 to-emerald-500 transition-all duration-700 relative"
+                  style={{ width: `${pct}%` }}
+                >
+                  {pct > 15 && (
+                    <div className="absolute right-1 top-0.5 bottom-0.5 w-1 bg-white/40 rounded-full" />
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Block Goal Edit Modal */}
+            {editingBlockGoal && (
+              <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center z-50 p-4 animate-fade-in select-none">
+                <div className="bg-white rounded-3xl p-5 max-w-xs w-full shadow-2xl border border-slate-100 space-y-4">
+                  <div className="flex justify-between items-center">
+                    <h3 className="text-sm font-black text-slate-900">
+                      {editingBlockGoal} Protein Goal
+                    </h3>
+                    <button onClick={() => setEditingBlockGoal(null)} className="p-1 text-slate-400 hover:text-slate-600 rounded-full cursor-pointer">
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+                  <form onSubmit={handleSaveBlockGoal} className="space-y-3">
+                    <div>
+                      <label className="text-[10px] font-black text-slate-400 uppercase block mb-1">Protein Target (g)</label>
+                      <input
+                        type="number"
+                        min="0"
+                        value={blockGoalInput}
+                        onChange={e => setBlockGoalInput(e.target.value)}
+                        className="w-full bg-slate-50 border border-slate-200 px-3.5 py-2.5 rounded-xl text-sm font-bold text-slate-900 focus:outline-none focus:border-emerald-500"
+                        required
+                        autoFocus
+                      />
+                    </div>
+                    <div className="flex gap-2">
+                      <button type="button" onClick={() => setEditingBlockGoal(null)} className="flex-1 px-3 py-2 rounded-xl text-xs font-bold text-slate-500 hover:bg-slate-100 cursor-pointer">Cancel</button>
+                      <button type="submit" className="flex-1 px-4 py-2 rounded-xl text-xs font-black bg-emerald-600 hover:bg-emerald-700 text-white shadow-md cursor-pointer">Save Goal</button>
+                    </div>
+                  </form>
+                </div>
+              </div>
+            )}
+
+            {/* 4 Time-Block Grid */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              {blockDefs.map(({ key, label, icon, bar, border, bg, textColor }) => {
+                const blockP = blockProtein(key);
+                const blockGoal = blockGoals[key];
+                const blockPct = Math.min(100, Math.round((blockP / Math.max(1, blockGoal)) * 100));
+                const items = blockItems(key);
+
+                return (
+                  <div key={key} className={`${bg} ${border} border rounded-2xl p-3.5 flex flex-col gap-2 relative overflow-hidden`}>
+                    {/* Block Header */}
+                    <div className="flex items-center justify-between">
+                      <div
+                        className="flex items-center gap-1.5 cursor-pointer group"
+                        onClick={() => {
+                          setEditingBlockGoal(key);
+                          setBlockGoalInput(String(blockGoal));
+                        }}
+                        title={`Edit ${label} protein goal`}
+                      >
+                        <span className="text-base">{icon}</span>
+                        <span className={`text-[10px] font-black uppercase tracking-wide ${textColor}`}>{label}</span>
+                        <Edit3 className={`w-2.5 h-2.5 ${textColor} opacity-40 group-hover:opacity-100 transition`} />
+                      </div>
+                      {/* Plus button */}
+                      <button
+                        type="button"
+                        onClick={() => onOpenLogFoodForBlock ? onOpenLogFoodForBlock(key) : undefined}
+                        className={`w-7 h-7 rounded-xl flex items-center justify-center text-white font-black shadow-md transition active:scale-90 cursor-pointer ${
+                          key === 'Morning' ? 'bg-amber-500 hover:bg-amber-600 shadow-amber-500/30' :
+                          key === 'Afternoon' ? 'bg-sky-500 hover:bg-sky-600 shadow-sky-500/30' :
+                          key === 'Evening' ? 'bg-orange-500 hover:bg-orange-600 shadow-orange-500/30' :
+                          'bg-indigo-600 hover:bg-indigo-700 shadow-indigo-600/30'
+                        }`}
+                        title={`Log food to ${label}`}
+                      >
+                        <Plus className="w-4 h-4 stroke-[3]" />
+                      </button>
+                    </div>
+
+                    {/* Protein stats */}
+                    <div>
+                      <div className="flex items-baseline gap-1">
+                        <span className={`text-lg font-black ${textColor}`}>{blockP}</span>
+                        <span className="text-[10px] text-slate-400 font-semibold">g / {blockGoal}g</span>
+                      </div>
+                      <div className="w-full bg-white/70 h-1.5 rounded-full overflow-hidden mt-1">
+                        <div className={`${bar} h-full rounded-full transition-all duration-500`} style={{ width: `${blockPct}%` }} />
+                      </div>
+                    </div>
+
+                    {/* Items list */}
+                    {items.length > 0 && (
+                      <div className="space-y-1 max-h-24 overflow-y-auto">
+                        {items.map(item => (
+                          <div key={item.id} className="flex items-center justify-between bg-white/60 rounded-lg px-2 py-1">
+                            <span className="text-[9px] font-bold text-slate-700 truncate flex-1">{item.name}</span>
+                            <div className="flex items-center gap-1 shrink-0 ml-1">
+                              <span className={`text-[9px] font-black ${textColor}`}>{item.protein}g</span>
+                              <button
+                                onClick={() => { onRemoveFood(item.id); showToast('Removed item.'); }}
+                                className="p-0.5 rounded hover:bg-red-100 text-slate-300 hover:text-red-500 transition cursor-pointer"
+                              >
+                                <Trash2 className="w-2.5 h-2.5" />
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {items.length === 0 && (
+                      <p className="text-[9px] text-slate-400 font-medium text-center py-1">No food logged yet</p>
+                    )}
+
+                    {blockPct >= 100 && (
+                      <div className="text-[9px] font-black text-center text-white bg-emerald-500 rounded-lg py-0.5">✅ Goal Met!</div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </>
+        );
+      })()}
 
       {/* Active Visible Metric Cards Grid */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">

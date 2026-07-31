@@ -6,6 +6,10 @@ export interface NutritionTargets {
   fats: number;
   fiber: number;
   calories: number;
+  morningProtein?: number;
+  afternoonProtein?: number;
+  eveningProtein?: number;
+  nightProtein?: number;
 }
 
 export interface PillarGoal {
@@ -36,7 +40,7 @@ export interface LoggedFood {
   calories: number;
   timestamp: string;
   date?: string;
-  mealType?: 'Breakfast' | 'Lunch' | 'Dinner' | 'Snack';
+  mealType?: 'Breakfast' | 'Lunch' | 'Dinner' | 'Snack' | 'Morning' | 'Afternoon' | 'Evening' | 'Night';
 }
 
 export type HabitType = 'Count' | 'Timer';

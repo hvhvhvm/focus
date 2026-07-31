@@ -828,6 +828,7 @@ export default function App() {
                 currentUser={currentUser}
                 nutritionToday={nutritionToday}
                 nutritionTargets={nutritionTargets}
+                todaysFoodLog={todaysFoodLog}
                 onRefresh={handleRefreshData}
                 pillarGoals={customGoals}
                 focusedHabitIds={focusedHabitIds}
@@ -982,3 +983,4 @@ export default function App() {
     </div>
   );
 }
+

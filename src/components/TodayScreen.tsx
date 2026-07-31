@@ -20,7 +20,7 @@ import {
   Lock,
   RotateCcw,
 } from 'lucide-react';
-import { Habit, Routine, Category, PillarGoal } from '../types';
+import { Habit, Routine, Category, PillarGoal, LoggedFood, NutritionTargets } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
 import RoutineDetailsModal from './RoutineDetailsModal';
 import { EditHabitModal, EditRoutineModal } from './Modals';
@@ -404,7 +404,10 @@ interface TodayScreenProps {
   userPoints: number;
   currentUser: any;
   nutritionToday: { protein: number; carbs: number; fats: number; fiber: number; calories: number };
-  nutritionTargets?: { protein: number; carbs: number; fats: number; fiber: number; calories: number };
+  nutritionTargets?: NutritionTargets;
+  todaysFoodLog?: LoggedFood[];
+  onUpdateNutritionTargets?: (targets: NutritionTargets) => void;
+  onOpenLogFoodForBlock?: (block: 'Morning' | 'Afternoon' | 'Evening' | 'Night') => void;
   onRefresh?: () => Promise<void>;
   pillarGoals?: PillarGoal[];
   focusedHabitIds?: string[];
@@ -421,6 +424,7 @@ interface TodayScreenProps {
 
 export default function TodayScreen({
   habits, routines, dateToday, onLogHabit, onBatchLogHabits, userPoints, currentUser,
+  nutritionTargets, onUpdateNutritionTargets, todaysFoodLog = [], onOpenLogFoodForBlock,
   onRefresh,
   focusedHabitIds = [], onToggleFocusHabit,
   onDeleteHabit, onEditHabit, onDeleteRoutine, onEditRoutine, onFinishDay,
@@ -669,7 +673,12 @@ export default function TodayScreen({
 
       {modeTab === 'scheduler' ? (
         <div className="px-4 py-3">
-          <DailyScheduler />
+          <DailyScheduler
+            loggedFoods={todaysFoodLog}
+            nutritionTargets={nutritionTargets}
+            onUpdateNutritionTargets={onUpdateNutritionTargets}
+            onOpenLogFoodForBlock={onOpenLogFoodForBlock}
+          />
         </div>
       ) : (
         <>
