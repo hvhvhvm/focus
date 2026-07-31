@@ -278,6 +278,22 @@ export default function App() {
   const [isRoutineModalOpen, setIsRoutineModalOpen] = useState(false);
   const [isPlusModalOpen, setIsPlusModalOpen] = useState(false);
   const [isLogFoodModalOpen, setIsLogFoodModalOpen] = useState(false);
+  const [logFoodInitialBlock, setLogFoodInitialBlock] = useState<'Morning' | 'Afternoon' | 'Evening' | 'Night' | undefined>();
+
+  const openLogFood = () => {
+    setLogFoodInitialBlock(undefined);
+    setIsLogFoodModalOpen(true);
+  };
+
+  const openLogFoodForBlock = (block: 'Morning' | 'Afternoon' | 'Evening' | 'Night') => {
+    setLogFoodInitialBlock(block);
+    setIsLogFoodModalOpen(true);
+  };
+
+  const closeLogFood = () => {
+    setIsLogFoodModalOpen(false);
+    setLogFoodInitialBlock(undefined);
+  };
 
   // Fetch all user details, habits, routines on mounting/authentication
   const loadAllData = async (options: { forceBlocking?: boolean } = {}) => {
@@ -807,7 +823,8 @@ export default function App() {
                 onUpdateNutritionTargets={handleUpdateNutritionTargets}
                 todaysFoodLog={todaysFoodLog}
                 onRemoveFood={handleRemoveFood}
-                onOpenLogFood={() => setIsLogFoodModalOpen(true)}
+                onOpenLogFood={openLogFood}
+                onOpenLogFoodForBlock={openLogFoodForBlock}
                 onOpenCreateModal={() => setIsPlusModalOpen(true)}
                 onRefresh={handleRefreshData}
                 pillarGoals={customGoals}
@@ -829,6 +846,8 @@ export default function App() {
                 nutritionToday={nutritionToday}
                 nutritionTargets={nutritionTargets}
                 todaysFoodLog={todaysFoodLog}
+                onUpdateNutritionTargets={handleUpdateNutritionTargets}
+                onOpenLogFoodForBlock={openLogFoodForBlock}
                 onRefresh={handleRefreshData}
                 pillarGoals={customGoals}
                 focusedHabitIds={focusedHabitIds}
@@ -957,14 +976,15 @@ export default function App() {
           onAddCustomGoal={handleAddCustomGoal}
           nutritionTargets={nutritionTargets}
           onUpdateNutritionTargets={handleUpdateNutritionTargets}
-          onOpenLogFood={() => setIsLogFoodModalOpen(true)}
+          onOpenLogFood={openLogFood}
         />
 
         <LogFoodModal
           isOpen={isLogFoodModalOpen}
-          onClose={() => setIsLogFoodModalOpen(false)}
+          onClose={closeLogFood}
           onAddFood={handleAddFood}
           loggedFoodsHistory={loggedFoods}
+          initialBlock={logFoodInitialBlock}
         />
       </Suspense>
 

@@ -23,8 +23,14 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { formatDateString, dateToday } from '../data';
 import type { NutritionTargets } from '../types';
-
-export type TimeBlock = 'Morning' | 'Afternoon' | 'Evening' | 'Night';
+import {
+  getBlockProteinGoal,
+  getBlockProteinConsumed,
+  getCurrentTimeBlock,
+  BLOCK_PROTEIN_KEYS,
+  type TimeBlock,
+} from '../lib/nutritionBlocks';
+import ProteinBlockBar from './ProteinBlockBar';
 
 export interface SubTask {
   id: string;

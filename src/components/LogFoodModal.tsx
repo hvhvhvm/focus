@@ -1,55 +1,36 @@
-import React, { useState } from 'react';
-import { X, PlusCircle, Utensils, Search, Check, Star, Trash2, Plus } from 'lucide-react';
-import { LoggedFood } from './DietScreen';
-
-export type MealType = 'Breakfast' | 'Lunch' | 'Dinner' | 'Snack' | 'Morning' | 'Afternoon' | 'Evening' | 'Night';
-export type TimeBlock = 'Morning' | 'Afternoon' | 'Evening' | 'Night';
+import React, { useState, useEffect, useMemo } from 'react';
+import { X, Plus, Search, Check, Trash2 } from 'lucide-react';
+import type { LoggedFood } from '../types';
+import {
+  TIME_BLOCKS,
+  BLOCK_META,
+  getCurrentTimeBlock,
+  type TimeBlock,
+} from '../lib/nutritionBlocks';
 
 interface LogFoodModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onAddFood: (food: { name: string; protein: number; carbs: number; fats: number; fiber: number; calories: number; mealType?: MealType }) => void;
+  onAddFood: (food: {
+    name: string;
+    protein: number;
+    carbs: number;
+    fats: number;
+    fiber: number;
+    calories: number;
+    mealType?: TimeBlock;
+  }) => void;
   loggedFoodsHistory?: LoggedFood[];
   initialBlock?: TimeBlock;
 }
 
-export const MEAL_TYPES: { type: MealType; label: string; icon: string; bg: string; text: string; border: string }[] = [
-  { type: 'Breakfast', label: 'Breakfast', icon: '🌅', bg: 'bg-amber-50', text: 'text-amber-700', border: 'border-amber-200' },
-  { type: 'Lunch', label: 'Lunch', icon: '☀️', bg: 'bg-emerald-50', text: 'text-emerald-700', border: 'border-emerald-200' },
-  { type: 'Dinner', label: 'Dinner', icon: '🌙', bg: 'bg-indigo-50', text: 'text-indigo-700', border: 'border-indigo-200' },
-  { type: 'Snack', label: 'Snack', icon: '🥨', bg: 'bg-purple-50', text: 'text-purple-700', border: 'border-purple-200' },
-];
-
-export const TIME_BLOCKS: { block: TimeBlock; label: string; icon: string; bg: string; activeBg: string; text: string; border: string }[] = [
-  { block: 'Morning', label: 'Morning', icon: '🌅', bg: 'bg-amber-50', activeBg: 'bg-amber-500', text: 'text-amber-700', border: 'border-amber-300' },
-  { block: 'Afternoon', label: 'Afternoon', icon: '☀️', bg: 'bg-sky-50', activeBg: 'bg-sky-500', text: 'text-sky-700', border: 'border-sky-300' },
-  { block: 'Evening', label: 'Evening', icon: '🌆', bg: 'bg-orange-50', activeBg: 'bg-orange-500', text: 'text-orange-700', border: 'border-orange-300' },
-  { block: 'Night', label: 'Night', icon: '🌙', bg: 'bg-indigo-50', activeBg: 'bg-indigo-600', text: 'text-indigo-700', border: 'border-indigo-300' },
-];
-
-export const getAutoTimeBlock = (): TimeBlock => {
-  const h = new Date().getHours();
-  if (h >= 5 && h < 11.5) return 'Morning';
-  if (h >= 11.5 && h < 16.5) return 'Afternoon';
-  if (h >= 16.5 && h < 21.5) return 'Evening';
-  return 'Night';
-};
-
-export const getAutoMealType = (): MealType => {
-  const h = new Date().getHours();
-  if (h >= 5 && h < 11.5) return 'Breakfast';
-  if (h >= 11.5 && h < 16.5) return 'Lunch';
-  if (h >= 16.5 && h < 21.5) return 'Dinner';
-  return 'Snack';
-};
-
 const DEFAULT_FAVORITES = [
-  { id: 'fav-1', name: 'Oatmeal & Protein Shake', protein: 30, carbs: 45, fats: 6, fiber: 5, calories: 350, mealType: 'Breakfast' as MealType, emoji: '🥣' },
-  { id: 'fav-2', name: 'Eggs & Whole Wheat Toast', protein: 24, carbs: 28, fats: 14, fiber: 3, calories: 330, mealType: 'Breakfast' as MealType, emoji: '🍳' },
-  { id: 'fav-3', name: 'Grilled Chicken & Rice', protein: 42, carbs: 50, fats: 8, fiber: 4, calories: 440, mealType: 'Lunch' as MealType, emoji: '🥗' },
-  { id: 'fav-4', name: 'Turkey Wrap & Salad', protein: 35, carbs: 38, fats: 10, fiber: 5, calories: 380, mealType: 'Lunch' as MealType, emoji: '🌯' },
-  { id: 'fav-5', name: 'Salmon & Roasted Veggies', protein: 38, carbs: 20, fats: 18, fiber: 6, calories: 410, mealType: 'Dinner' as MealType, emoji: '🥩' },
-  { id: 'fav-6', name: 'Greek Yogurt & Berries', protein: 20, carbs: 18, fats: 2, fiber: 3, calories: 170, mealType: 'Snack' as MealType, emoji: '🫐' },
+  { id: 'fav-1', name: 'Protein Shake', protein: 30, calories: 150, emoji: '🥤' },
+  { id: 'fav-2', name: 'Eggs (3)', protein: 18, calories: 210, emoji: '🍳' },
+  { id: 'fav-3', name: 'Chicken & Rice', protein: 42, calories: 440, emoji: '🍗' },
+  { id: 'fav-4', name: 'Greek Yogurt', protein: 20, calories: 120, emoji: '🥛' },
+  { id: 'fav-5', name: 'Salmon Bowl', protein: 38, calories: 410, emoji: '🐟' },
+  { id: 'fav-6', name: 'Protein Bar', protein: 20, calories: 200, emoji: '🍫' },
 ];
 
 export default function LogFoodModal({
@@ -59,586 +40,238 @@ export default function LogFoodModal({
   loggedFoodsHistory = [],
   initialBlock,
 }: LogFoodModalProps) {
-  const [activeTab, setActiveTab] = useState<'quick' | 'custom'>('quick');
+  const [selectedBlock, setSelectedBlock] = useState<TimeBlock>(() => initialBlock || getCurrentTimeBlock());
   const [searchQuery, setSearchQuery] = useState('');
-  
-  // Selected time block for logging
-  const [selectedBlock, setSelectedBlock] = useState<TimeBlock>(() => initialBlock || getAutoTimeBlock());
+  const [showCustom, setShowCustom] = useState(false);
+  const [name, setName] = useState('');
+  const [protein, setProtein] = useState('25');
+  const [loggedFlash, setLoggedFlash] = useState<string | null>(null);
 
-  // Category filter for favorites tab (All, Breakfast, Lunch, Dinner, Snack)
-  const [favCategoryFilter, setFavCategoryFilter] = useState<'All' | MealType>('All');
-
-  // Favorites state
-  const [favorites, setFavorites] = useState<{ id: string; name: string; protein: number; carbs: number; fats: number; fiber: number; calories: number; emoji?: string; mealType?: MealType }[]>(() => {
+  const [favorites, setFavorites] = useState(() => {
     try {
       const saved = localStorage.getItem('90day_favorite_foods');
-      return saved ? JSON.parse(saved) : DEFAULT_FAVORITES;
-    } catch (e) {
-      return DEFAULT_FAVORITES;
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        return Array.isArray(parsed) ? parsed : DEFAULT_FAVORITES;
+      }
+    } catch {
+      /* use defaults */
     }
+    return DEFAULT_FAVORITES;
   });
 
-  // Toggle inline favorite creator
-  const [showAddFavForm, setShowAddFavForm] = useState(false);
-
-  // Favorites form state
-  const [favName, setFavName] = useState('');
-  const [favProtein, setFavProtein] = useState('25');
-  const [favCarbs, setFavCarbs] = useState('30');
-  const [favFats, setFavFats] = useState('8');
-  const [favFiber, setFavFiber] = useState('2');
-  const [favCalories, setFavCalories] = useState('290');
-  const [favMealType, setFavMealType] = useState<MealType>(() => getAutoMealType());
-
-  // Custom manual entry state
-  const [name, setName] = useState('');
-  const [protein, setProtein] = useState('20');
-  const [calories, setCalories] = useState('200');
-  const [saveToFavFromCustom, setSaveToFavFromCustom] = useState(false);
-
-  // Visual feedback indicator
-  const [loggedIndicator, setLoggedIndicator] = useState<{ name: string; mealType: MealType } | null>(null);
-
-  // Sync initialBlock changes (when re-opening modal for different block)
-  React.useEffect(() => {
-    if (initialBlock) setSelectedBlock(initialBlock);
-    else setSelectedBlock(getAutoTimeBlock());
+  useEffect(() => {
+    if (!isOpen) return;
+    setSelectedBlock(initialBlock || getCurrentTimeBlock());
+    setSearchQuery('');
+    setShowCustom(false);
+    setLoggedFlash(null);
   }, [initialBlock, isOpen]);
+
+  const todayStr = new Date().toISOString().split('T')[0];
+  const todayCount = loggedFoodsHistory.filter((f) => !f.date || f.date === todayStr).length;
+
+  const filteredFavorites = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    return favorites
+      .filter((f: { name: string }) => !q || f.name.toLowerCase().includes(q))
+      .sort((a: { protein: number }, b: { protein: number }) => b.protein - a.protein);
+  }, [favorites, searchQuery]);
 
   if (!isOpen) return null;
 
-  const handleEstimateFavCalories = () => {
-    const p = parseFloat(favProtein) || 0;
-    const c = parseFloat(favCarbs) || 0;
-    const f = parseFloat(favFats) || 0;
-    const calculated = (p * 4) + (c * 4) + (f * 9);
-    setFavCalories(String(Math.round(calculated)));
+  const flashLog = (foodName: string) => {
+    setLoggedFlash(foodName);
+    setTimeout(() => setLoggedFlash(null), 1500);
   };
 
-  const handleQuickLog = (food: { name: string; protein: number; carbs?: number; fats?: number; fiber?: number; calories: number; mealType?: MealType }) => {
-    // Always use the selected time block as mealType for time-block based logging
-    const assignedMeal: MealType = selectedBlock;
+  const logFood = (food: { name: string; protein: number; calories?: number; carbs?: number; fats?: number; fiber?: number }) => {
+    const p = Math.max(0, food.protein);
     onAddFood({
       name: food.name,
-      protein: food.protein,
-      carbs: food.carbs || 0,
-      fats: food.fats || 0,
-      fiber: food.fiber || 0,
-      calories: food.calories,
-      mealType: assignedMeal,
+      protein: p,
+      carbs: food.carbs ?? 0,
+      fats: food.fats ?? 0,
+      fiber: food.fiber ?? 0,
+      calories: food.calories ?? Math.round(p * 4 + 50),
+      mealType: selectedBlock,
     });
-    
-    setLoggedIndicator({ name: food.name, mealType: assignedMeal });
-    setTimeout(() => {
-      setLoggedIndicator(null);
-    }, 1800);
-  };
-
-  const handleAddFavoriteSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!favName.trim()) return;
-
-    const newFav = {
-      id: Math.random().toString(36).substring(2, 9),
-      name: favName.trim(),
-      protein: Math.max(0, parseFloat(favProtein) || 0),
-      carbs: Math.max(0, parseFloat(favCarbs) || 0),
-      fats: Math.max(0, parseFloat(favFats) || 0),
-      fiber: Math.max(0, parseFloat(favFiber) || 0),
-      calories: Math.max(0, parseFloat(favCalories) || 0),
-      mealType: favMealType,
-      emoji: favMealType === 'Breakfast' ? '🌅' : favMealType === 'Lunch' ? '☀️' : favMealType === 'Dinner' ? '🌙' : '🥨'
-    };
-
-    const updated = [newFav, ...favorites];
-    setFavorites(updated);
-    localStorage.setItem('90day_favorite_foods', JSON.stringify(updated));
-
-    setFavName('');
-    setShowAddFavForm(false);
-  };
-
-  const handleDeleteFavorite = (id: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    const updated = favorites.filter(f => f.id !== id);
-    setFavorites(updated);
-    localStorage.setItem('90day_favorite_foods', JSON.stringify(updated));
+    flashLog(food.name);
   };
 
   const handleCustomSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) return;
-
-    // Use the selected block as mealType
-    const assignedMeal: MealType = selectedBlock;
-
-    const customFood = {
-      name: name.trim(),
-      protein: Math.max(0, parseFloat(protein) || 0),
-      carbs: 0,
-      fats: 0,
-      fiber: 0,
-      calories: Math.max(0, parseFloat(calories) || 0),
-      mealType: assignedMeal,
-    };
-
-    onAddFood(customFood);
-
-    if (saveToFavFromCustom) {
-      const newFav = {
-        id: Math.random().toString(36).substring(2, 9),
-        name: name.trim(),
-        protein: customFood.protein,
-        carbs: 0,
-        fats: 0,
-        fiber: 0,
-        calories: customFood.calories,
-        mealType: assignedMeal,
-        emoji: '⭐'
-      };
-      const updated = [newFav, ...favorites];
-      setFavorites(updated);
-      localStorage.setItem('90day_favorite_foods', JSON.stringify(updated));
-    }
-
+    logFood({ name: name.trim(), protein: parseFloat(protein) || 0 });
     setName('');
-    setSaveToFavFromCustom(false);
-
-    setLoggedIndicator({ name: name.trim(), mealType: assignedMeal });
-    setTimeout(() => {
-      setLoggedIndicator(null);
-    }, 1800);
+    setProtein('25');
+    setShowCustom(false);
   };
 
-  // Helper to count how many times a food item was logged today
-  const getTodayLogCount = (foodName: string) => {
-    const todayStr = new Date().toISOString().split('T')[0];
-    return (loggedFoodsHistory || []).filter(item => {
-      const isToday = !item.date || item.date === todayStr;
-      return isToday && item.name.toLowerCase().trim() === foodName.toLowerCase().trim();
-    }).length;
+  const handleDeleteFavorite = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const updated = favorites.filter((f: { id: string }) => f.id !== id);
+    setFavorites(updated);
+    localStorage.setItem('90day_favorite_foods', JSON.stringify(updated));
   };
-
-  // Group favorites by meal type
-  const mealCategoriesToDisplay: MealType[] = favCategoryFilter === 'All' 
-    ? ['Breakfast', 'Lunch', 'Dinner', 'Snack'] 
-    : [favCategoryFilter];
 
   return (
-    <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center z-50 p-3 sm:p-6 select-none animate-fade-in">
-      <div className="bg-white rounded-3xl w-full max-w-xl p-5 sm:p-7 shadow-2xl relative border border-slate-100 flex flex-col gap-4 max-h-[92vh] sm:max-h-[88vh] overflow-hidden">
-        
-        {/* Header */}
-        <div className="flex justify-between items-center shrink-0">
-          <div className="flex items-center gap-3">
-            <div className="bg-emerald-500/10 p-2.5 sm:p-3 rounded-2xl text-emerald-600 border border-emerald-500/20">
-              <Utensils className="w-5 h-5 sm:w-6 sm:h-6" />
-            </div>
+    <div className="fixed inset-0 bg-black/50 backdrop-blur-[2px] flex items-end sm:items-center justify-center z-50 p-0 sm:p-4 select-none animate-fade-in">
+      <div className="bg-white rounded-t-3xl sm:rounded-2xl w-full max-w-md shadow-2xl border border-neutral-100 flex flex-col max-h-[90vh] overflow-hidden">
+        <div className="px-5 pt-4 pb-3 border-b border-neutral-100 shrink-0">
+          <div className="w-10 h-1 bg-neutral-200 rounded-full mx-auto mb-4 sm:hidden" />
+          <div className="flex items-start justify-between gap-3">
             <div>
-              <h2 className="text-lg sm:text-xl font-black text-slate-950 tracking-tight leading-none">Log Food Item</h2>
-              <p className="text-xs text-gray-500 font-medium mt-1">Select a time block then log your food</p>
+              <h2 className="text-lg font-black text-black tracking-tight">Log Protein</h2>
+              <p className="text-[11px] text-neutral-400 font-medium mt-0.5">
+                {todayCount} logged today · {selectedBlock}
+              </p>
             </div>
+            <button
+              onClick={onClose}
+              className="w-8 h-8 rounded-full bg-neutral-100 hover:bg-neutral-200 flex items-center justify-center cursor-pointer transition"
+            >
+              <X className="w-4 h-4 text-neutral-500" />
+            </button>
           </div>
-          <button 
-            onClick={onClose}
-            className="bg-slate-50 hover:bg-slate-100 p-2 rounded-full border border-gray-150 transition cursor-pointer min-w-[38px] min-h-[38px] flex items-center justify-center"
-          >
-            <X className="w-4 h-4 text-gray-500" />
-          </button>
-        </div>
 
-        {/* ⏰ Time Block Selector */}
-        <div className="shrink-0">
-          <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1.5">Logging to time block</p>
-          <div className="grid grid-cols-4 gap-1.5">
-            {TIME_BLOCKS.map(({ block, label, icon }) => {
-              const isActive = selectedBlock === block;
-              const blockColors: Record<TimeBlock, string> = {
-                Morning: isActive ? 'bg-amber-500 border-amber-500 text-white shadow-amber-500/30' : 'bg-amber-50 border-amber-200 text-amber-700 hover:bg-amber-100',
-                Afternoon: isActive ? 'bg-sky-500 border-sky-500 text-white shadow-sky-500/30' : 'bg-sky-50 border-sky-200 text-sky-700 hover:bg-sky-100',
-                Evening: isActive ? 'bg-orange-500 border-orange-500 text-white shadow-orange-500/30' : 'bg-orange-50 border-orange-200 text-orange-700 hover:bg-orange-100',
-                Night: isActive ? 'bg-indigo-600 border-indigo-600 text-white shadow-indigo-600/30' : 'bg-indigo-50 border-indigo-200 text-indigo-700 hover:bg-indigo-100',
-              };
+          <div className="grid grid-cols-4 gap-1.5 mt-4">
+            {TIME_BLOCKS.map((block) => {
+              const active = selectedBlock === block;
+              const meta = BLOCK_META[block];
               return (
                 <button
                   key={block}
                   type="button"
                   onClick={() => setSelectedBlock(block)}
-                  className={`flex flex-col items-center py-2 rounded-xl border font-black text-[10px] transition-all cursor-pointer ${isActive ? 'shadow-md' : ''} ${blockColors[block]}`}
+                  className={`py-2 rounded-xl text-[10px] font-bold transition cursor-pointer border ${
+                    active
+                      ? 'bg-black text-white border-black'
+                      : 'bg-white text-neutral-600 border-neutral-200 hover:border-neutral-400'
+                  }`}
                 >
-                  <span className="text-base leading-none mb-0.5">{icon}</span>
-                  <span>{label}</span>
+                  <span className="block text-sm mb-0.5">{meta.icon}</span>
+                  {meta.short}
                 </button>
               );
             })}
           </div>
         </div>
 
-        {/* Visual success toast notification */}
-        {loggedIndicator && (
-          <div className="bg-emerald-600 text-white text-xs font-extrabold px-4 py-2.5 rounded-2xl flex items-center justify-between shadow-lg border border-emerald-500 shrink-0 animate-fade-in">
-            <div className="flex items-center gap-2 min-w-0">
-              <Check className="w-4 h-4 text-white stroke-[3px] shrink-0" />
-              <span className="truncate">Logged <strong>+1 {loggedIndicator.name}</strong> to {loggedIndicator.mealType}!</span>
-            </div>
-            <span className="text-[9px] bg-white/20 text-white px-2 py-0.5 rounded-lg uppercase tracking-wider font-extrabold shrink-0 ml-2">Added Today</span>
+        {loggedFlash && (
+          <div className="mx-5 mt-3 px-3 py-2 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-bold flex items-center gap-2 shrink-0">
+            <Check className="w-3.5 h-3.5 stroke-[3]" />
+            +{loggedFlash} → {selectedBlock}
           </div>
         )}
 
-        {/* Dynamic Navigation Tabs */}
-        <div className="grid grid-cols-2 bg-slate-100 p-1 rounded-2xl shrink-0">
-          <button
-            onClick={() => setActiveTab('quick')}
-            className={`py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer min-h-[38px] ${
-              activeTab === 'quick' ? 'bg-white text-emerald-600 shadow-sm font-black' : 'text-slate-500 hover:text-slate-800'
-            }`}
-          >
-            ⭐ Favorites & Quick Log
-          </button>
-          <button
-            onClick={() => setActiveTab('custom')}
-            className={`py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer min-h-[38px] ${
-              activeTab === 'custom' ? 'bg-white text-emerald-600 shadow-sm font-black' : 'text-slate-500 hover:text-slate-800'
-            }`}
-          >
-            📝 Custom Entry
-          </button>
-        </div>
-
-        {/* Quick Log Tab Content */}
-        {activeTab === 'quick' && (
-          <div className="flex-1 flex flex-col gap-3 overflow-hidden">
-            
-            {/* Search Bar + Add Favorite button */}
-            <div className="space-y-2 shrink-0">
-              <div className="flex gap-2">
-                <div className="relative flex-1">
-                  <input
-                    type="text"
-                    placeholder="Search favorites..."
-                    value={searchQuery}
-                    onChange={e => setSearchQuery(e.target.value)}
-                    className="w-full bg-slate-50 border border-slate-200 pl-9 pr-4 py-2 rounded-xl text-base sm:text-xs font-semibold focus:outline-none focus:border-emerald-500 text-slate-900 min-h-[40px]"
-                  />
-                  <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
-                </div>
-                
-                <button
-                  type="button"
-                  onClick={() => setShowAddFavForm(!showAddFavForm)}
-                  className="bg-emerald-50 hover:bg-emerald-100 text-emerald-700 px-3.5 rounded-xl border border-emerald-200 text-xs font-bold transition flex items-center gap-1 cursor-pointer shrink-0"
-                >
-                  {showAddFavForm ? <X className="w-3.5 h-3.5" /> : <Plus className="w-3.5 h-3.5" />}
-                  <span>Add Favorite</span>
-                </button>
+        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-3">
+          {!showCustom ? (
+            <>
+              <div className="relative">
+                <Search className="w-4 h-4 text-neutral-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  placeholder="Search favorites..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full bg-neutral-50 border border-neutral-200 pl-9 pr-3 py-2.5 rounded-xl text-sm font-medium focus:outline-none focus:border-black text-black"
+                />
               </div>
 
-              {/* Category filter pills */}
-              <div className="flex gap-1.5 overflow-x-auto pb-0.5 scrollbar-none">
-                {(['All', 'Breakfast', 'Lunch', 'Dinner', 'Snack'] as const).map(cat => (
-                  <button
-                    key={cat}
-                    type="button"
-                    onClick={() => setFavCategoryFilter(cat)}
-                    className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase transition cursor-pointer shrink-0 border ${
-                      favCategoryFilter === cat
-                        ? 'bg-slate-900 text-white border-slate-900 font-black shadow-xs'
-                        : 'bg-slate-50 text-slate-500 border-slate-200 hover:bg-slate-100'
-                    }`}
-                  >
-                    {cat === 'All' ? '✨ All Meals' : cat === 'Breakfast' ? '🌅 Breakfast' : cat === 'Lunch' ? '☀️ Lunch' : cat === 'Dinner' ? '🌙 Dinner' : '🥨 Snack'}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Inline Add Favorite Form */}
-            {showAddFavForm && (
-              <form onSubmit={handleAddFavoriteSubmit} className="bg-slate-50 border border-slate-200/80 p-3 rounded-2xl space-y-2.5 shrink-0 animate-fade-in">
-                <div className="flex justify-between items-center">
-                  <span className="text-[10px] font-black text-emerald-800 uppercase tracking-wider">Create Custom Favorite Food</span>
-                  <button 
-                    type="button" 
-                    onClick={() => setShowAddFavForm(false)} 
-                    className="text-slate-400 hover:text-slate-600 text-xs"
-                  >
-                    Cancel
-                  </button>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                  <div className="sm:col-span-2">
-                    <input 
-                      type="text" 
-                      placeholder="Food Name (e.g. Protein Oatmeal)" 
-                      value={favName}
-                      onChange={e => setFavName(e.target.value)}
-                      className="w-full bg-white border border-slate-200 px-2.5 py-1.5 rounded-lg text-xs font-bold focus:outline-none focus:border-emerald-500 text-slate-900"
-                      required
-                    />
-                  </div>
-                  <div>
-                    <select
-                      value={favMealType}
-                      onChange={e => setFavMealType(e.target.value as MealType)}
-                      className="w-full bg-white border border-slate-200 px-2 py-1.5 rounded-lg text-xs font-bold text-slate-900 focus:outline-none"
+              <div className="space-y-1.5">
+                {filteredFavorites.length === 0 ? (
+                  <p className="text-xs text-neutral-400 text-center py-6">No matches. Add a custom entry below.</p>
+                ) : (
+                  filteredFavorites.map((food: { id: string; name: string; protein: number; calories?: number; emoji?: string }) => (
+                    <button
+                      key={food.id}
+                      type="button"
+                      onClick={() => logFood(food)}
+                      className="w-full flex items-center gap-3 p-3 rounded-xl border border-neutral-100 hover:border-black hover:bg-neutral-50 transition cursor-pointer text-left group"
                     >
-                      <option value="Breakfast">🌅 Breakfast</option>
-                      <option value="Lunch">☀️ Lunch</option>
-                      <option value="Dinner">🌙 Dinner</option>
-                      <option value="Snack">🥨 Snack</option>
-                    </select>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-4 gap-1.5">
-                  <div>
-                    <label className="text-[8px] font-black text-slate-500 uppercase block mb-0.5">Protein</label>
-                    <input 
-                      type="number" 
-                      value={favProtein}
-                      onChange={e => setFavProtein(e.target.value)}
-                      className="w-full bg-white border border-slate-200 p-1 rounded-lg text-xs font-bold focus:outline-none focus:border-emerald-500 text-slate-900 text-center"
-                      min="0"
-                      required
-                    />
-                  </div>
-                  <div>
-                    <label className="text-[8px] font-black text-slate-500 uppercase block mb-0.5">Carbs</label>
-                    <input 
-                      type="number" 
-                      value={favCarbs}
-                      onChange={e => setFavCarbs(e.target.value)}
-                      className="w-full bg-white border border-slate-200 p-1 rounded-lg text-xs font-bold focus:outline-none focus:border-emerald-500 text-slate-900 text-center"
-                      min="0"
-                      required
-                    />
-                  </div>
-                  <div>
-                    <label className="text-[8px] font-black text-slate-500 uppercase block mb-0.5">Fats</label>
-                    <input 
-                      type="number" 
-                      value={favFats}
-                      onChange={e => setFavFats(e.target.value)}
-                      className="w-full bg-white border border-slate-200 p-1 rounded-lg text-xs font-bold focus:outline-none focus:border-emerald-500 text-slate-900 text-center"
-                      min="0"
-                      required
-                    />
-                  </div>
-                  <div>
-                    <label className="text-[8px] font-black text-slate-500 uppercase block mb-0.5">Fiber</label>
-                    <input 
-                      type="number" 
-                      value={favFiber}
-                      onChange={e => setFavFiber(e.target.value)}
-                      className="w-full bg-white border border-slate-200 p-1 rounded-lg text-xs font-bold focus:outline-none focus:border-emerald-500 text-slate-900 text-center"
-                      min="0"
-                      required
-                    />
-                  </div>
-                </div>
-
-                <div className="flex gap-2 items-center">
-                  <div className="flex-1">
-                    <div className="flex justify-between items-center mb-0.5">
-                      <label className="text-[8px] font-black text-slate-500 uppercase">Calories</label>
+                      <span className="text-lg shrink-0">{food.emoji || '🍽️'}</span>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-bold text-black truncate">{food.name}</p>
+                        <p className="text-[11px] text-neutral-400 font-medium">{food.protein}g protein</p>
+                      </div>
+                      <span className="text-[10px] font-black text-black bg-neutral-100 group-hover:bg-black group-hover:text-white px-2.5 py-1 rounded-lg transition shrink-0">
+                        + LOG
+                      </span>
                       <button
                         type="button"
-                        onClick={handleEstimateFavCalories}
-                        className="text-[8px] text-emerald-600 hover:underline font-black uppercase"
+                        onClick={(e) => handleDeleteFavorite(food.id, e)}
+                        className="w-7 h-7 rounded-lg text-neutral-300 hover:text-red-500 hover:bg-red-50 flex items-center justify-center cursor-pointer shrink-0 opacity-0 group-hover:opacity-100 transition"
+                        title="Remove favorite"
                       >
-                        Auto-Estimate
+                        <Trash2 className="w-3.5 h-3.5" />
                       </button>
-                    </div>
-                    <input 
-                      type="number" 
-                      value={favCalories}
-                      onChange={e => setFavCalories(e.target.value)}
-                      className="w-full bg-white border border-slate-200 py-1 px-2.5 rounded-lg text-xs font-bold focus:outline-none focus:border-emerald-500 text-slate-900"
-                      min="0"
-                      required
-                    />
-                  </div>
+                    </button>
+                  ))
+                )}
+              </div>
 
-                  <button 
-                    type="submit"
-                    className="bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs px-4 py-2.5 rounded-xl transition cursor-pointer self-end shadow-md shadow-emerald-600/10"
-                  >
-                    Save Favorite
-                  </button>
-                </div>
-              </form>
-            )}
-
-            {/* Categorized Meal Section Favorites List */}
-            <div className="flex-1 overflow-y-auto pr-1 space-y-4 max-h-[380px]">
-              {mealCategoriesToDisplay.map((mealType) => {
-                const mealMeta = MEAL_TYPES.find(m => m.type === mealType) || MEAL_TYPES[0];
-                const sectionItems = favorites.filter(food => {
-                  const itemMeal = food.mealType || 'Breakfast';
-                  const matchesSearch = food.name.toLowerCase().includes(searchQuery.toLowerCase());
-                  return itemMeal === mealType && matchesSearch;
-                });
-
-                if (favCategoryFilter === 'All' && sectionItems.length === 0 && searchQuery.trim() !== '') {
-                  return null;
-                }
-
-                return (
-                  <div key={mealType} className="space-y-2">
-                    {/* Meal Section Header */}
-                    <div className="flex items-center justify-between bg-slate-100/80 py-1.5 px-3 rounded-xl border border-slate-200/60 sticky top-0 z-10 backdrop-blur-xs">
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-sm">{mealMeta.icon}</span>
-                        <h4 className="text-xs font-black text-slate-900 uppercase tracking-wide">{mealMeta.label}</h4>
-                      </div>
-                      <span className="text-[10px] font-bold text-slate-400">{sectionItems.length} items</span>
-                    </div>
-
-                    {/* Items inside this meal section */}
-                    <div className="space-y-1.5 pl-1">
-                      {sectionItems.map((food) => {
-                        const todayCount = getTodayLogCount(food.name);
-                        return (
-                          <div
-                            key={food.id}
-                            onClick={() => handleQuickLog(food)}
-                            className="w-full bg-slate-50 hover:bg-emerald-50/75 border border-slate-150 hover:border-emerald-200 p-2.5 rounded-2xl transition flex items-center justify-between cursor-pointer group min-h-[48px]"
-                          >
-                            <div className="flex items-center gap-3 min-w-0 flex-1">
-                              <span className="text-sm shrink-0">{food.emoji || mealMeta.icon}</span>
-                              <div className="min-w-0 flex-1">
-                                <div className="flex items-center gap-2">
-                                  <p className="text-xs font-black text-slate-800 truncate group-hover:text-emerald-700">{food.name}</p>
-                                  {todayCount > 0 && (
-                                    <span className="text-[9px] bg-emerald-100 text-emerald-800 font-black px-2 py-0.5 rounded-full border border-emerald-300 flex items-center gap-0.5 shrink-0 shadow-2xs">
-                                      <Check className="w-2.5 h-2.5 text-emerald-600 stroke-[3px]" />
-                                      {todayCount}x Today
-                                    </span>
-                                  )}
-                                </div>
-                                <div className="flex items-center gap-1.5 text-[9px] font-mono font-bold text-slate-400 mt-0.5">
-                                  <span className="text-emerald-600">P: {food.protein}g</span>
-                                  <span>•</span>
-                                  <span className="text-amber-600">{food.calories} kcal</span>
-                                </div>
-                              </div>
-                            </div>
-                            
-                            <div className="flex items-center gap-2 shrink-0 ml-2">
-                              <button
-                                onClick={(e) => handleDeleteFavorite(food.id, e)}
-                                className="bg-slate-100 hover:bg-red-50 text-slate-400 hover:text-red-600 p-1.5 rounded-lg border border-slate-200 hover:border-red-100 transition flex items-center justify-center cursor-pointer"
-                                title="Remove Favorite"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
-
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleQuickLog(food);
-                                }}
-                                className="text-[10px] bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-black px-2.5 py-1 rounded-xl shadow-xs transition cursor-pointer"
-                              >
-                                + LOG ({selectedBlock})
-                              </button>
-                            </div>
-                          </div>
-                        );
-                      })}
-
-                      {sectionItems.length === 0 && (
-                        <div className="py-3 px-4 bg-slate-50/50 rounded-xl border border-dashed border-slate-200 text-center">
-                          <p className="text-[10px] text-slate-400 font-medium">No {mealType.toLowerCase()} favorites yet. Click Add Favorite to create one!</p>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
-
-        {/* Custom manual food entry form */}
-        {activeTab === 'custom' && (
-          <form onSubmit={handleCustomSubmit} className="space-y-3.5 flex-1 overflow-y-auto max-h-[45vh] sm:max-h-[400px] pr-1">
-            <div>
-              <label className="text-[10px] font-black text-slate-500 uppercase block mb-1">Food / Drink Name</label>
-              <input 
-                type="text" 
-                placeholder="e.g. Chicken Breast, Protein Shake" 
-                value={name}
-                onChange={e => setName(e.target.value)}
-                className="w-full bg-slate-50 border border-slate-200 px-3.5 py-2.5 rounded-xl text-xs font-bold focus:outline-none focus:border-emerald-500 text-slate-900 min-h-[38px]"
-                required
-              />
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
+              <button
+                type="button"
+                onClick={() => setShowCustom(true)}
+                className="w-full py-2.5 rounded-xl border border-dashed border-neutral-300 text-xs font-bold text-neutral-500 hover:border-black hover:text-black transition cursor-pointer flex items-center justify-center gap-1.5"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                Custom entry
+              </button>
+            </>
+          ) : (
+            <form onSubmit={handleCustomSubmit} className="space-y-3">
               <div>
-                <label className="text-[10px] font-black text-slate-500 uppercase block mb-1">Protein (g)</label>
-                <input 
-                  type="number" 
+                <label className="text-[10px] font-bold text-neutral-400 uppercase tracking-wide block mb-1">Food name</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Chicken breast"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  className="w-full bg-neutral-50 border border-neutral-200 px-3 py-2.5 rounded-xl text-sm font-medium focus:outline-none focus:border-black"
+                  required
+                  autoFocus
+                />
+              </div>
+              <div>
+                <label className="text-[10px] font-bold text-neutral-400 uppercase tracking-wide block mb-1">Protein (g)</label>
+                <input
+                  type="number"
+                  min="0"
+                  step="any"
                   value={protein}
-                  onChange={e => setProtein(e.target.value)}
-                  className="w-full bg-slate-50 border border-slate-200 p-2.5 rounded-xl text-xs font-bold focus:outline-none focus:border-emerald-500 text-slate-900 min-h-[36px]"
-                  min="0"
-                  step="any"
+                  onChange={(e) => setProtein(e.target.value)}
+                  className="w-full bg-neutral-50 border border-neutral-200 px-3 py-2.5 rounded-xl text-sm font-bold focus:outline-none focus:border-black"
                   required
                 />
               </div>
-              <div>
-                <label className="text-[10px] font-black text-slate-500 uppercase block mb-1">Calories (kcal)</label>
-                <input 
-                  type="number" 
-                  value={calories}
-                  onChange={e => setCalories(e.target.value)}
-                  className="w-full bg-slate-50 border border-slate-200 p-2.5 rounded-xl text-xs font-bold focus:outline-none focus:border-emerald-500 text-slate-900 min-h-[36px]"
-                  min="0"
-                  step="any"
-                  required
-                />
+              <div className="flex gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={() => setShowCustom(false)}
+                  className="flex-1 py-2.5 rounded-xl border border-neutral-200 text-xs font-bold text-neutral-500 hover:bg-neutral-50 cursor-pointer"
+                >
+                  Back
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 py-2.5 rounded-xl bg-black text-white text-xs font-black hover:bg-neutral-800 cursor-pointer"
+                >
+                  Log to {selectedBlock}
+                </button>
               </div>
-            </div>
+            </form>
+          )}
+        </div>
 
-            {/* Checkbox to save to favorites */}
-            <div className="flex items-center gap-2 pt-1">
-              <input 
-                type="checkbox" 
-                id="saveToFav"
-                checked={saveToFavFromCustom}
-                onChange={e => setSaveToFavFromCustom(e.target.checked)}
-                className="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 w-4 h-4 cursor-pointer"
-              />
-              <label htmlFor="saveToFav" className="text-xs text-slate-600 font-bold select-none cursor-pointer">
-                ⭐ Save this food to my personal favorites
-              </label>
-            </div>
-
-            <button 
-              type="submit"
-              className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs py-3 rounded-xl transition shadow-md shadow-emerald-600/15 mt-2.5 cursor-pointer flex items-center justify-center gap-1.5 min-h-[44px]"
-            >
-              <PlusCircle className="w-4 h-4" />
-              <span>Log Item</span>
-            </button>
-          </form>
-        )}
-
-        {/* Footer Action Bar */}
-        <div className="pt-3 border-t border-slate-100 flex justify-between items-center shrink-0">
-          <span className="text-xs font-bold text-slate-500">
-            Items logged today: <strong className="text-emerald-700 font-black font-mono">{(loggedFoodsHistory || []).filter(f => !f.date || f.date === new Date().toISOString().split('T')[0]).length}</strong>
-          </span>
+        <div className="px-5 py-3 border-t border-neutral-100 shrink-0">
           <button
             type="button"
             onClick={onClose}
-            className="bg-slate-900 hover:bg-slate-800 text-white font-extrabold text-xs px-5 py-2.5 rounded-xl transition cursor-pointer shadow-md shadow-slate-900/10 active:scale-95"
+            className="w-full py-2.5 rounded-xl bg-neutral-100 hover:bg-neutral-200 text-xs font-black text-black transition cursor-pointer"
           >
-            Done Logging
+            Done
           </button>
         </div>
       </div>
