@@ -76,7 +76,9 @@ const STORAGE_KEY = 'focus_now_daily_scheduler_tasks_v10';
 const LOCAL_NUTRITION_TARGETS_KEY = 'focus_now_scheduler_protein_targets_v1';
 const APP_NUTRITION_TARGETS_KEY = '90day_nutrition_targets';
 const APP_LOGGED_FOODS_KEY = '90day_logged_foods';
-const NOTIF_BANNER_KEY = 'focus_now_notif_banner_dismissed';
+const NOTIF_BANNER_KEY   = 'focus_now_notif_banner_dismissed';
+const DAY_BRIEFING_HOUR  = 6; // 6:00 AM every day
+const DAY_BRIEFING_MIN   = 0;
 
 const DEFAULT_NUTRITION_TARGETS: NutritionTargets = {
   protein: 150,
@@ -116,6 +118,54 @@ const MOTIVATIONAL_MESSAGES = [
   'The best time to start was yesterday. Second best? NOW! ⏰',
   'Every rep, every task — it compounds. Trust the process! 📈',
   'Locked in. Dialed in. Let\'s execute! 🔒',
+  'Pain is temporary. Regret is forever. Move! 🦾',
+  'Not motivated? Good. Discipline doesn\'t need motivation. 🧱',
+  'The goal doesn\'t care how you feel today. Show up anyway! 🎯',
+  'Identity is built in the moments you least want to try. 💥',
+  'Outwork yesterday. Every. Single. Day. 🌅',
+];
+
+// ── Time-block reminder schedule ─────────────────────────────────────────────
+const TIME_BLOCK_NOTIFS: { hour: number; min: number; block: TimeBlock; emoji: string; title: string; body: string }[] = [
+  {
+    hour: 6, min: 0, block: 'Morning', emoji: '🌅',
+    title: '🌅 Morning Block — Rise & Dominate',
+    body: 'Your Morning window is LIVE. Hydrate, move, and conquer the first block. Champions start before the world wakes up.'
+  },
+  {
+    hour: 12, min: 0, block: 'Afternoon', emoji: '🔥',
+    title: '🔥 Afternoon Block — Peak Performance',
+    body: 'Midday is your power hour. Your Afternoon tasks are waiting. No excuses — lock in and execute.'
+  },
+  {
+    hour: 17, min: 0, block: 'Evening', emoji: '💪',
+    title: '💪 Evening Block — Move Your Body',
+    body: 'Time to train, recover, and decompress. Your Evening block is live. Finish strong.'
+  },
+  {
+    hour: 21, min: 0, block: 'Night', emoji: '🌙',
+    title: '🌙 Night Protocol — Wind Down & Reflect',
+    body: 'Check your Night tasks. Plan tomorrow. The last hour of your day shapes who you become next.'
+  },
+];
+
+// ── Daily motivational quote blasts (3× per day) ─────────────────────────────
+const DAILY_MOTIVATIONAL_SCHEDULE: { hour: number; min: number; title: string; body: string }[] = [
+  {
+    hour: 7, min: 0,
+    title: '⚡ Morning Fuel — Day starts NOW',
+    body: MOTIVATIONAL_MESSAGES[Math.floor(Math.random() * MOTIVATIONAL_MESSAGES.length)],
+  },
+  {
+    hour: 13, min: 0,
+    title: '🔥 Midday Charge — Don\'t slow down',
+    body: MOTIVATIONAL_MESSAGES[Math.floor(Math.random() * MOTIVATIONAL_MESSAGES.length)],
+  },
+  {
+    hour: 20, min: 0,
+    title: '💎 Evening Reflection — Finish the day right',
+    body: MOTIVATIONAL_MESSAGES[Math.floor(Math.random() * MOTIVATIONAL_MESSAGES.length)],
+  },
 ];
 
 const RECURRENCE_OPTIONS: { type: RecurrenceType; label: string; short: string }[] = [
@@ -358,6 +408,10 @@ export default function DailyScheduler({
     localStorage.getItem(NOTIF_BANNER_KEY) === '1'
   );
   const notifTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+  const swRegRef       = useRef<ServiceWorkerRegistration | null>(null);
+  const deferredPrompt = useRef<any>(null);
+  const [pwaInstallable, setPwaInstallable] = useState(false);
+  const [swReady, setSwReady]               = useState(false);
 
   // ── Effects ───────────────────────────────────────────────────────────────
 
@@ -379,6 +433,33 @@ export default function DailyScheduler({
     return () => { window.removeEventListener('focus', refresh); window.removeEventListener('storage', refresh); };
   }, []);
 
+  // Register Service Worker for background notifications
+  useEffect(() => {
+    if (!('serviceWorker' in navigator)) return;
+
+    navigator.serviceWorker.register('/sw.js')
+      .then(reg => {
+        swRegRef.current = reg;
+        setSwReady(true);
+      })
+      .catch(err => console.warn('[FocusNow] SW registration failed:', err));
+
+    // PWA install prompt
+    const onPrompt = (e: Event) => {
+      e.preventDefault();
+      deferredPrompt.current = e;
+      setPwaInstallable(true);
+    };
+    window.addEventListener('beforeinstallprompt', onPrompt);
+    return () => window.removeEventListener('beforeinstallprompt', onPrompt);
+  }, []);
+
+  // Helper: post a message to the active SW
+  const postToSW = useCallback((msg: object) => {
+    const sw = swRegRef.current?.active;
+    if (sw) sw.postMessage(msg);
+  }, []);
+
   // Materialize recurring tasks whenever selectedDate changes (±7 day buffer)
   useEffect(() => {
     const datesToCheck: string[] = [];
@@ -397,15 +478,118 @@ export default function DailyScheduler({
     });
   }, [selectedDate]);
 
-  // Schedule push notifications for today's tasks with reminder times
+  // Schedule daily time-block reminders + motivational quotes + Day Briefing via SW
   useEffect(() => {
-    // Clear old timers
+    if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
+    if (!swReady) return;
+
+    const now = new Date();
+    const batch: object[] = [];
+
+    // ── Day Briefing (6 AM) — includes 90-day mission day ─────────────────
+    (() => {
+      const briefingFire = new Date();
+      briefingFire.setHours(DAY_BRIEFING_HOUR, DAY_BRIEFING_MIN, 0, 0);
+      const msUntil = briefingFire.getTime() - now.getTime();
+      if (msUntil > 0) {
+        // ── Calculate current 90-day mission day ──
+        let missionDay = 1;
+        const journeyStart = currentUser?.journey_start_date
+          ? new Date(currentUser.journey_start_date)
+          : null;
+        if (journeyStart) {
+          const diffDays = Math.floor((now.getTime() - journeyStart.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+          missionDay = Math.max(1, Math.min(90, diffDays));
+        }
+        const daysLeft = 90 - missionDay;
+
+        // ── Phase-aware motivational opener ──
+        const phaseMsg =
+          missionDay <= 7   ? `First week warrior! Every habit you build now is compounding. Don't stop.` :
+          missionDay <= 14  ? `Two weeks in — the identity shift is happening. Keep showing up!` :
+          missionDay <= 30  ? `One month locked in. You're proving something to yourself every single day.` :
+          missionDay <= 60  ? `Halfway warrior. Most people quit here. You're not most people.` :
+          missionDay <= 80  ? `The final stretch. ${daysLeft} days left. This is where legends are made.` :
+                              `FINAL 10 DAYS. You came this far — finish it. No surrender. 🏆`;
+
+        // ── Task breakdown ──
+        let morningCount = 0, afternoonCount = 0, eveningCount = 0, nightCount = 0, total = 0;
+        try {
+          const raw = localStorage.getItem(STORAGE_KEY);
+          if (raw) {
+            const allTasks: SchedulerTask[] = JSON.parse(raw);
+            const todayTasks = allTasks.filter(t => !t.isRecurrenceTemplate && t.date === dateToday);
+            total = todayTasks.length;
+            morningCount   = todayTasks.filter(t => t.timeBlock === 'Morning').length;
+            afternoonCount = todayTasks.filter(t => t.timeBlock === 'Afternoon').length;
+            eveningCount   = todayTasks.filter(t => t.timeBlock === 'Evening').length;
+            nightCount     = todayTasks.filter(t => t.timeBlock === 'Night').length;
+          }
+        } catch {}
+
+        const blockLines: string[] = [];
+        if (morningCount   > 0) blockLines.push(`🌅 Morning ×${morningCount}`);
+        if (afternoonCount > 0) blockLines.push(`🔥 Afternoon ×${afternoonCount}`);
+        if (eveningCount   > 0) blockLines.push(`💪 Evening ×${eveningCount}`);
+        if (nightCount     > 0) blockLines.push(`🌙 Night ×${nightCount}`);
+
+        const taskLine = total > 0
+          ? `${blockLines.join('  ')} — ${total} tasks today.`
+          : 'No tasks scheduled yet — plan your blocks for max output! 📅';
+
+        batch.push({
+          id: 'day-briefing',
+          title: `🏆 Day ${missionDay} of 90 — ${now.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}`,
+          body: `${phaseMsg}\n\n${taskLine}`,
+          msUntil,
+          requireInteraction: true,
+        });
+      }
+    })();
+
+    // ── Time-block reminders ───────────────────────────────────────────────
+    TIME_BLOCK_NOTIFS.forEach(n => {
+      const fireAt = new Date();
+      fireAt.setHours(n.hour, n.min, 0, 0);
+      const msUntil = fireAt.getTime() - now.getTime();
+      if (msUntil <= 0) return;
+      batch.push({
+        id: `block-${n.block}`,
+        title: n.title,
+        body: n.body,
+        msUntil,
+        requireInteraction: true,
+      });
+    });
+
+    // ── Motivational quote blasts ───────────────────────────────────────────
+    DAILY_MOTIVATIONAL_SCHEDULE.forEach((n, i) => {
+      const fireAt = new Date();
+      fireAt.setHours(n.hour, n.min, 0, 0);
+      const msUntil = fireAt.getTime() - now.getTime();
+      if (msUntil <= 0) return;
+      batch.push({
+        id: `motivational-${i}`,
+        title: n.title,
+        body: MOTIVATIONAL_MESSAGES[Math.floor(Math.random() * MOTIVATIONAL_MESSAGES.length)],
+        msUntil,
+      });
+    });
+
+    if (batch.length > 0) postToSW({ type: 'SCHEDULE_BATCH', payload: batch });
+  }, [notifPermission, swReady, postToSW]);
+
+  // Schedule task-specific reminders (prefer SW; fall back to setTimeout)
+  useEffect(() => {
+    // Clear old fallback timers
     notifTimersRef.current.forEach(t => clearTimeout(t));
     notifTimersRef.current.clear();
 
     if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
 
     const now = new Date();
+    const taskBatch: object[] = [];
+
     tasks
       .filter(t => !t.isRecurrenceTemplate && t.date === dateToday && !t.completed && t.recurrence?.reminderTime)
       .forEach(task => {
@@ -416,19 +600,31 @@ export default function DailyScheduler({
         if (msUntil <= 0) return;
 
         const msg = MOTIVATIONAL_MESSAGES[Math.floor(Math.random() * MOTIVATIONAL_MESSAGES.length)];
-        const timer = setTimeout(() => {
-          try {
-            new Notification(`⏰ Time for: ${task.title}`, {
-              body: msg,
-              icon: '/favicon.ico',
-            });
-          } catch {}
-        }, msUntil);
-        notifTimersRef.current.set(task.id, timer);
+
+        if (swReady && swRegRef.current?.active) {
+          // Route through Service Worker (survives tab close)
+          taskBatch.push({
+            id: `task-${task.id}`,
+            title: `⏰ Time for: ${task.title}`,
+            body: msg,
+            msUntil,
+            requireInteraction: true,
+          });
+        } else {
+          // Fallback: in-page setTimeout
+          const timer = setTimeout(() => {
+            try {
+              new Notification(`⏰ Time for: ${task.title}`, { body: msg, icon: '/favicon.ico' });
+            } catch {}
+          }, msUntil);
+          notifTimersRef.current.set(task.id, timer);
+        }
       });
 
+    if (taskBatch.length > 0) postToSW({ type: 'SCHEDULE_BATCH', payload: taskBatch });
+
     return () => { notifTimersRef.current.forEach(t => clearTimeout(t)); };
-  }, [tasks, notifPermission]);
+  }, [tasks, notifPermission, swReady, postToSW]);
 
   // ── Derived values ────────────────────────────────────────────────────────
   const activeNutritionTargets = mergeTargets(localNutritionTargets, nutritionTargets);
@@ -797,6 +993,17 @@ export default function DailyScheduler({
     localStorage.setItem(NOTIF_BANNER_KEY, '1');
   };
 
+  const handleInstallPWA = async () => {
+    if (!deferredPrompt.current) return;
+    deferredPrompt.current.prompt();
+    const { outcome } = await deferredPrompt.current.userChoice;
+    if (outcome === 'accepted') {
+      setPwaInstallable(false);
+      showToast('🚀 App installed! Notifications will work even when closed.');
+    }
+    deferredPrompt.current = null;
+  };
+
   // ── Render ────────────────────────────────────────────────────────────────
 
   const showNotifBanner =
@@ -831,15 +1038,14 @@ export default function DailyScheduler({
             exit={{ opacity: 0, y: -12, scale: 0.98 }}
             className="relative flex items-center gap-3 px-4 py-3.5 rounded-2xl border border-amber-200 bg-gradient-to-r from-amber-50 to-orange-50 shadow-sm overflow-hidden"
           >
-            {/* Subtle glow strip */}
             <div className="absolute inset-0 bg-gradient-to-r from-amber-400/10 to-orange-400/10 pointer-events-none rounded-2xl" />
             <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center shrink-0 shadow-sm">
               <Bell className="w-4.5 h-4.5 text-white animate-pulse" />
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-xs font-black text-amber-900 leading-tight">Enable reminders to get notified for your scheduled tasks 🔔</p>
+              <p className="text-xs font-black text-amber-900 leading-tight">Enable smart reminders 🔔</p>
               <p className="text-[11px] text-amber-700 font-medium mt-0.5">
-                Get notified when it's time for your scheduled tasks — stay locked in.
+                Get block alerts at 6 AM, 12 PM, 5 PM, 9 PM + 3× daily motivation blasts.
               </p>
             </div>
             <div className="flex items-center gap-2 shrink-0">
@@ -854,6 +1060,46 @@ export default function DailyScheduler({
                 type="button"
                 onClick={dismissNotifBanner}
                 className="w-7 h-7 rounded-lg text-amber-600 hover:text-amber-900 hover:bg-amber-100 flex items-center justify-center transition cursor-pointer"
+                title="Dismiss"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ── PWA Install Banner ────────────────────────────────────────────── */}
+      <AnimatePresence>
+        {pwaInstallable && (
+          <motion.div
+            initial={{ opacity: 0, y: -10, scale: 0.98 }}
+            animate={{ opacity: 1, y: 0,   scale: 1 }}
+            exit={{ opacity: 0, y: -10, scale: 0.98 }}
+            className="relative flex items-center gap-3 px-4 py-3.5 rounded-2xl border border-emerald-200 bg-gradient-to-r from-emerald-50 to-teal-50 shadow-sm overflow-hidden"
+          >
+            <div className="absolute inset-0 bg-gradient-to-r from-emerald-400/10 to-teal-400/10 pointer-events-none rounded-2xl" />
+            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center shrink-0 shadow-sm">
+              <span className="text-base">📲</span>
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-black text-emerald-900 leading-tight">Install as App — Get Background Alerts</p>
+              <p className="text-[11px] text-emerald-700 font-medium mt-0.5">
+                Install Focus Now on your device so notifications fire even when the tab is closed.
+              </p>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={handleInstallPWA}
+                className="px-3 py-1.5 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white text-xs font-black rounded-xl shadow-sm transition-all active:scale-95 cursor-pointer"
+              >
+                Install
+              </button>
+              <button
+                type="button"
+                onClick={() => setPwaInstallable(false)}
+                className="w-7 h-7 rounded-lg text-emerald-600 hover:text-emerald-900 hover:bg-emerald-100 flex items-center justify-center transition cursor-pointer"
                 title="Dismiss"
               >
                 <X className="w-3.5 h-3.5" />
