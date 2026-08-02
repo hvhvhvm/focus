@@ -678,6 +678,8 @@ export default function TodayScreen({
             nutritionTargets={nutritionTargets}
             onUpdateNutritionTargets={onUpdateNutritionTargets}
             onOpenLogFoodForBlock={onOpenLogFoodForBlock}
+            userPoints={userPoints}
+            currentUser={currentUser}
           />
         </div>
       ) : (

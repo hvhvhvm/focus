@@ -748,10 +748,10 @@ export default function App() {
 
   const { score: currentLiveMomentumScore } = calculateMomentum(habits);
 
-  // Nav items — now includes Pillars as a dedicated tab
+  // Nav items — Daily Scheduler prioritized as #1 primary tab
   const navItems = [
+    { id: 'today', label: 'Daily Scheduler', icon: CalendarIcon },
     { id: 'home', label: 'Dashboard', icon: HomeIcon },
-    { id: 'today', label: "Today's Focus", icon: CalendarIcon },
     { id: 'pillars', label: 'Pillars', icon: LayersIcon },
     { id: 'progress', label: 'Progress Logs', icon: BarChartIcon },
     { id: 'profile', label: 'Profile Settings', icon: UserIcon },
@@ -897,23 +897,23 @@ export default function App() {
         {/* Floating Bottom Navigation Bar: Mobile Only */}
         <div className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-gray-150 py-2.5 px-4 flex justify-between items-center z-40 shadow-[0_-8px_24px_rgba(0,0,0,0.04)] select-none animate-fade-in">
           <button
-            onClick={() => setTab('home')}
-            className={`flex flex-col items-center justify-center flex-1 py-1 transition cursor-pointer ${
-              currentTab === 'home' ? 'text-[#12B886] scale-105' : 'text-gray-400 hover:text-gray-600'
-            }`}
-          >
-            <HomeIcon className="w-5 h-5 stroke-[2.5px]" />
-            <span className="text-[9px] font-black mt-1 uppercase tracking-wider">Home</span>
-          </button>
-
-          <button
             onClick={() => setTab('today')}
             className={`flex flex-col items-center justify-center flex-1 py-1 transition cursor-pointer ${
               currentTab === 'today' ? 'text-[#12B886] scale-105' : 'text-gray-400 hover:text-gray-600'
             }`}
           >
             <CalendarIcon className="w-5 h-5 stroke-[2.5px]" />
-            <span className="text-[9px] font-black mt-1 uppercase tracking-wider">Today</span>
+            <span className="text-[9px] font-black mt-1 uppercase tracking-wider">Scheduler</span>
+          </button>
+
+          <button
+            onClick={() => setTab('home')}
+            className={`flex flex-col items-center justify-center flex-1 py-1 transition cursor-pointer ${
+              currentTab === 'home' ? 'text-[#12B886] scale-105' : 'text-gray-400 hover:text-gray-600'
+            }`}
+          >
+            <HomeIcon className="w-5 h-5 stroke-[2.5px]" />
+            <span className="text-[9px] font-black mt-1 uppercase tracking-wider">Dashboard</span>
           </button>
 
           {/* Glowing Green Floating "+" Button */}

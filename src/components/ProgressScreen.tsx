@@ -92,6 +92,29 @@ export default function ProgressScreen({
     let totalTarget = 0;
     const habitLogs: { name: string; category: string; value: number; target: number; unit: string; completed: boolean }[] = [];
 
+    // 1. Read DailyScheduler tasks from storage
+    try {
+      const SCHEDULER_KEY = 'focus_now_daily_scheduler_tasks_v10';
+      const raw = localStorage.getItem(SCHEDULER_KEY);
+      if (raw) {
+        const schedulerTasks: any[] = JSON.parse(raw);
+        const dayTasks = schedulerTasks.filter(t => !t.isRecurrenceTemplate && t.date === dateStr);
+        dayTasks.forEach(t => {
+          totalTarget += 1;
+          if (t.completed) totalLogged += 1;
+          habitLogs.push({
+            name: `[${t.timeBlock}] ${t.title}`,
+            category: t.timeBlock || 'Scheduler',
+            value: t.completed ? 1 : 0,
+            target: 1,
+            unit: 'task',
+            completed: t.completed,
+          });
+        });
+      }
+    } catch {}
+
+    // 2. Read Habits if any exist
     habits.forEach(h => {
       const val = h.history[dateStr] || 0;
       const tgt = h.target || 1;
