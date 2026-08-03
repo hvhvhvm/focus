@@ -254,6 +254,11 @@ const getCurrentTimeBlock = (): TimeBlock => {
   return 'Night';
 };
 
+const getNextTimeBlock = (block: TimeBlock): TimeBlock => {
+  const order: TimeBlock[] = ['Morning', 'Afternoon', 'Evening', 'Night'];
+  return order[(order.indexOf(block) + 1) % order.length];
+};
+
 const readStoredNutritionTargets = (): NutritionTargets => {
   try {
     const raw = localStorage.getItem(LOCAL_NUTRITION_TARGETS_KEY) || localStorage.getItem(APP_NUTRITION_TARGETS_KEY);
@@ -360,6 +365,9 @@ export default function DailyScheduler({
   const [expandedBlocks, setExpandedBlocks] = useState<Record<TimeBlock, boolean>>({
     Morning: true, Afternoon: true, Evening: true, Night: true,
   });
+  const [currentTimeBlock, setCurrentTimeBlock] = useState<TimeBlock>(() => getCurrentTimeBlock());
+  const [visibleBlock, setVisibleBlock] = useState<TimeBlock>(() => getCurrentTimeBlock());
+  const [manualBlockNavigation, setManualBlockNavigation] = useState(false);
 
   const [expandedTaskIds, setExpandedTaskIds] = useState<Record<string, boolean>>({
     'seed-2': false, 'seed-3': false,
@@ -410,6 +418,7 @@ export default function DailyScheduler({
   const notifTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
   const swRegRef       = useRef<ServiceWorkerRegistration | null>(null);
   const deferredPrompt = useRef<any>(null);
+  const timeBlockViewportRef = useRef<HTMLDivElement | null>(null);
   const [pwaInstallable, setPwaInstallable] = useState(false);
   const [swReady, setSwReady]               = useState(false);
 
@@ -424,6 +433,29 @@ export default function DailyScheduler({
   useEffect(() => {
     if (nutritionTargets) setLocalNutritionTargets(prev => mergeTargets(prev, nutritionTargets));
   }, [nutritionTargets]);
+
+  // Keep today's scheduler focused on the live block as the clock changes.
+  useEffect(() => {
+    const syncBlockToClock = () => {
+      const nextCurrentBlock = getCurrentTimeBlock();
+      setCurrentTimeBlock(nextCurrentBlock);
+      if (selectedDate === dateToday && !manualBlockNavigation) {
+        setVisibleBlock(nextCurrentBlock);
+        setExpandedBlocks(prev => ({ ...prev, [nextCurrentBlock]: true }));
+      }
+    };
+
+    syncBlockToClock();
+    const intervalId = window.setInterval(syncBlockToClock, 60_000);
+    return () => window.clearInterval(intervalId);
+  }, [manualBlockNavigation, selectedDate]);
+
+  useEffect(() => {
+    const nextVisibleBlock = selectedDate === dateToday ? getCurrentTimeBlock() : 'Morning';
+    setManualBlockNavigation(false);
+    setVisibleBlock(nextVisibleBlock);
+    setExpandedBlocks(prev => ({ ...prev, [nextVisibleBlock]: true }));
+  }, [selectedDate]);
 
   // Refresh food logs on window focus / storage event
   useEffect(() => {
@@ -647,6 +679,9 @@ export default function DailyScheduler({
 
   const datesStrip      = generateDateStrip(selectedDate);
   const timeBlocks: TimeBlock[] = ['Morning', 'Afternoon', 'Evening', 'Night'];
+  const visibleTimeBlocks: TimeBlock[] = [visibleBlock];
+  const visibleBlockIndex = timeBlocks.indexOf(visibleBlock);
+  const nextVisibleBlock = getNextTimeBlock(visibleBlock);
 
   const totalTasksCount     = tasksForSelectedDate.length;
   const completedTasksCount = tasksForSelectedDate.filter(t => t.completed).length;
@@ -664,6 +699,22 @@ export default function DailyScheduler({
 
   const toggleExpandTask = (taskId: string) =>
     setExpandedTaskIds(prev => ({ ...prev, [taskId]: !prev[taskId] }));
+
+  const handleShowBlock = (block: TimeBlock, manual = true) => {
+    setManualBlockNavigation(manual);
+    setVisibleBlock(block);
+    setExpandedBlocks(prev => ({ ...prev, [block]: true }));
+    window.setTimeout(() => {
+      timeBlockViewportRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 0);
+  };
+
+  const handleShowNextBlock = () => handleShowBlock(getNextTimeBlock(visibleBlock));
+
+  const handleShowCurrentTimeBlock = () => {
+    if (selectedDate !== dateToday) setSelectedDate(dateToday);
+    handleShowBlock(getCurrentTimeBlock(), false);
+  };
 
   const startEditingProteinGoal = (block: TimeBlock, currentGoal: number) =>
     setEditingProteinGoal({ block, value: String(currentGoal) });
@@ -1110,8 +1161,8 @@ export default function DailyScheduler({
       </AnimatePresence>
 
       {/* ── Header ───────────────────────────────────────────────────────────── */}
-      <div className="bg-white border border-neutral-200 rounded-3xl p-6 shadow-xs">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <div className="bg-white border border-neutral-200 rounded-2xl p-4 sm:p-5 shadow-xs">
+        <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
           <div>
             <div className="flex items-center gap-2 flex-wrap">
               <span className="bg-black text-white text-[10px] font-black uppercase px-2.5 py-0.5 rounded-full tracking-wider">
@@ -1133,7 +1184,7 @@ export default function DailyScheduler({
                 </span>
               )}
             </div>
-            <h1 className="text-2xl font-black text-black tracking-tight mt-1">Daily Scheduler</h1>
+            <h1 className="text-xl sm:text-2xl font-black text-black tracking-tight mt-1">Daily Scheduler</h1>
             <p className="text-xs text-neutral-500 font-medium">
               Time-anchored daily schedule · drag to reorder · recurring tasks
             </p>
@@ -1144,7 +1195,7 @@ export default function DailyScheduler({
               <button
                 type="button"
                 onClick={() => setSelectedDate(dateToday)}
-                className="flex items-center gap-1.5 px-3 py-2 bg-neutral-100 hover:bg-black hover:text-white text-black text-xs font-bold rounded-xl transition cursor-pointer"
+                className="h-9 flex items-center gap-1.5 px-3 bg-neutral-100 hover:bg-black hover:text-white text-black text-xs font-bold rounded-xl transition cursor-pointer"
               >
                 <RotateCcw className="w-3.5 h-3.5" />
                 <span>Today</span>
@@ -1154,7 +1205,7 @@ export default function DailyScheduler({
               type="button"
               onClick={handleReplicateToTomorrow}
               title="Copy current schedule to tomorrow"
-              className="flex items-center gap-2 px-4 py-2 bg-black hover:bg-neutral-800 text-white text-xs font-bold rounded-xl transition shadow-xs active:scale-95 cursor-pointer"
+              className="h-9 flex items-center gap-2 px-3 bg-black hover:bg-neutral-800 text-white text-xs font-bold rounded-xl transition shadow-xs active:scale-95 cursor-pointer"
             >
               <Copy className="w-3.5 h-3.5 text-neutral-300" />
               <span>Replicate to Tomorrow</span>
@@ -1162,8 +1213,7 @@ export default function DailyScheduler({
           </div>
         </div>
 
-        {/* ── Date Selector Strip ─────────────────────────────────────────────── */}
-        <div className="mt-6">
+        <div className="mt-4">
           <div className="flex items-center justify-between mb-2">
             <span className="text-[11px] font-bold text-neutral-500 uppercase tracking-wider flex items-center gap-1.5">
               <CalendarIcon className="w-3.5 h-3.5 text-black" />
@@ -1189,7 +1239,7 @@ export default function DailyScheduler({
                   type="button"
                   onClick={() => setSelectedDate(item.dateStr)}
                   title={tooltip}
-                  className={`flex-shrink-0 flex flex-col items-center justify-center w-14 py-2.5 rounded-2xl border transition-all cursor-pointer ${
+                  className={`flex-shrink-0 flex flex-col items-center justify-center w-12 py-2 rounded-xl border transition-all cursor-pointer ${
                     item.isSelected
                       ? 'bg-black text-white border-black shadow-md scale-105'
                       : item.isToday
@@ -1200,28 +1250,26 @@ export default function DailyScheduler({
                   <span className={`text-[9px] font-bold tracking-wider uppercase ${item.isSelected ? 'text-neutral-400' : 'text-neutral-400'}`}>
                     {item.dayName}
                   </span>
-                  <span className={`text-base font-black mt-0.5 ${item.isSelected ? 'text-white' : 'text-black'}`}>
+                  <span className={`text-sm font-black mt-0.5 ${item.isSelected ? 'text-white' : 'text-black'}`}>
                     {item.dayNumber}
                   </span>
 
-                  {/* Completion dot indicator */}
                   {pct >= 0 ? (
                     <span
-                      className="w-4 h-1 rounded-full mt-1 transition-all duration-300"
+                      className="w-3.5 h-0.5 rounded-full mt-1 transition-all duration-300"
                       style={{ backgroundColor: item.isSelected ? 'rgba(255,255,255,0.6)' : dotColor }}
                     />
                   ) : item.isToday && !item.isSelected ? (
                     <span className="w-1.5 h-1.5 rounded-full bg-black mt-1" />
                   ) : (
-                    <span className="w-4 h-1 mt-1" />
+                    <span className="w-3.5 h-0.5 mt-1" />
                   )}
                 </button>
               );
             })}
           </div>
 
-          {/* Legend */}
-          <div className="flex items-center gap-4 mt-2 pl-1">
+          <div className="hidden sm:flex items-center gap-4 mt-1 pl-1">
             <span className="text-[10px] font-semibold text-neutral-400 flex items-center gap-1">
               <span className="w-3 h-0.5 rounded-full bg-green-400 inline-block" /> ≥80%
             </span>
@@ -1234,25 +1282,66 @@ export default function DailyScheduler({
           </div>
         </div>
 
-        {/* Progress Bar Summary */}
-        <div className="mt-4 pt-4 border-t border-neutral-100 flex items-center justify-between gap-4">
-          <div className="flex items-center gap-2 text-xs font-bold text-black">
-            <CheckCircle2 className="w-4 h-4 text-black" />
-            <span>{completedTasksCount} of {totalTasksCount} completed</span>
+        <div className="mt-3 pt-3 border-t border-neutral-100">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-[10px] font-black uppercase tracking-wider text-neutral-400">Viewing Block</span>
+                {selectedDate === dateToday && visibleBlock === currentTimeBlock && (
+                  <span className="text-[10px] font-black uppercase tracking-wider bg-black text-white px-2 py-0.5 rounded-full">Live Now</span>
+                )}
+                {selectedDate === dateToday && visibleBlock !== currentTimeBlock && (
+                  <span className="text-[10px] font-black uppercase tracking-wider bg-neutral-100 text-neutral-600 border border-neutral-200 px-2 py-0.5 rounded-full">Peek Ahead</span>
+                )}
+              </div>
+              <div className="mt-1 flex items-center gap-2 min-w-0">
+                <span className="text-lg font-black text-black truncate">{visibleBlock}</span>
+                <span className="text-xs font-bold text-neutral-400">{visibleBlockIndex + 1}/4</span>
+                <span className="text-xs font-semibold text-neutral-500 truncate">{TIME_BLOCK_META[visibleBlock].timeRange}</span>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={handleShowCurrentTimeBlock}
+                disabled={selectedDate === dateToday && visibleBlock === currentTimeBlock}
+                title="Jump to the current time block"
+                className="h-9 px-3 rounded-xl border border-neutral-300 bg-white text-black hover:border-black disabled:opacity-40 disabled:hover:border-neutral-300 text-xs font-black flex items-center gap-1.5 transition cursor-pointer disabled:cursor-default"
+              >
+                <Clock className="w-3.5 h-3.5" />
+                <span>Now</span>
+              </button>
+              <button
+                type="button"
+                onClick={handleShowNextBlock}
+                title={`Show ${nextVisibleBlock}`}
+                className="h-9 px-3 rounded-xl bg-black text-white hover:bg-neutral-800 text-xs font-black flex items-center gap-1.5 transition active:scale-95 cursor-pointer"
+              >
+                <ChevronDown className="w-4 h-4 stroke-[3]" />
+                <span>{nextVisibleBlock}</span>
+              </button>
+            </div>
           </div>
-          <div className="flex-1 max-w-xs bg-neutral-100 rounded-full h-2 overflow-hidden border border-neutral-200">
-            <div
-              className="bg-black h-full transition-all duration-500 rounded-full"
-              style={{ width: `${completionPercentage}%` }}
-            />
+
+          <div className="mt-3 flex items-center gap-3">
+            <div className="flex items-center gap-1.5 text-[11px] font-black text-black shrink-0">
+              <CheckCircle2 className="w-3.5 h-3.5 text-black" />
+              <span>{completedTasksCount}/{totalTasksCount}</span>
+            </div>
+            <div className="flex-1 bg-neutral-100 rounded-full h-1.5 overflow-hidden border border-neutral-200">
+              <div
+                className="bg-black h-full transition-all duration-500 rounded-full"
+                style={{ width: `${completionPercentage}%` }}
+              />
+            </div>
+            <span className="text-[11px] font-black text-black w-8 text-right">{completionPercentage}%</span>
           </div>
-          <span className="text-xs font-black text-black w-8 text-right">{completionPercentage}%</span>
         </div>
       </div>
-
       {/* ── Time Block Sections ────────────────────────────────────────────────── */}
-      <div className="space-y-4">
-        {timeBlocks.map(block => {
+      <div ref={timeBlockViewportRef} className="space-y-4 scroll-mt-6">
+        {visibleTimeBlocks.map(block => {
           const meta           = TIME_BLOCK_META[block];
           const BlockIcon      = meta.icon;
           const blockTasks     = tasksForSelectedDate.filter(t => t.timeBlock === block);
