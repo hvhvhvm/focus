@@ -423,15 +423,23 @@ export default function DailyScheduler({
   const [notesFilter, setNotesFilter] = useState<'all' | 'scheduled' | 'unscheduled'>('all');
 
   // ── Daily Notes State ─────────────────────────────────────────────────────
-  // dailyNotes shape: { [dateStr]: string }
-  const [dailyNotes, setDailyNotes] = useState<Record<string, string>>(() => {
+  // Single shared note — same text shown for every date
+  const [dailyNote, setDailyNote] = useState<string>(() => {
     try {
       const saved = localStorage.getItem(DAILY_NOTES_KEY);
-      if (saved) return JSON.parse(saved);
+      if (saved) {
+        // Migration: if old format was an object, pick any non-empty value
+        const parsed = JSON.parse(saved);
+        if (typeof parsed === 'string') return parsed;
+        if (typeof parsed === 'object' && parsed !== null) {
+          const values = Object.values(parsed as Record<string, string>);
+          return values.find((v) => (v as string).trim().length > 0) as string ?? '';
+        }
+      }
     } catch {}
-    return {};
+    return '';
   });
-  // Draft text for the currently selected date (before save)
+  // Draft text (before save)
   const [dailyNoteDraft, setDailyNoteDraft] = useState<string | null>(null);
 
 
@@ -479,10 +487,7 @@ export default function DailyScheduler({
 
   // ── Effects ───────────────────────────────────────────────────────────────
 
-  // Clear note draft on date change
-  useEffect(() => {
-    setDailyNoteDraft(null);
-  }, [selectedDate]);
+  // Note: draft is NOT cleared on date change because the note is shared across all dates
 
   // Persist tasks
   useEffect(() => {
@@ -901,22 +906,20 @@ export default function DailyScheduler({
   };
 
   const handleSaveDailyNote = () => {
-    const text = (dailyNoteDraft ?? (dailyNotes[selectedDate] ?? '')).trim();
-    const nextNotes = { ...dailyNotes, [selectedDate]: text };
-    setDailyNotes(nextNotes);
+    const text = (dailyNoteDraft ?? dailyNote).trim();
+    setDailyNote(text);
     setDailyNoteDraft(null);
     try {
-      localStorage.setItem(DAILY_NOTES_KEY, JSON.stringify(nextNotes));
+      localStorage.setItem(DAILY_NOTES_KEY, JSON.stringify(text));
     } catch {}
     showToast('Daily note saved ✓');
   };
 
   const handleClearDailyNote = () => {
-    const nextNotes = { ...dailyNotes, [selectedDate]: '' };
-    setDailyNotes(nextNotes);
+    setDailyNote('');
     setDailyNoteDraft(null);
     try {
-      localStorage.setItem(DAILY_NOTES_KEY, JSON.stringify(nextNotes));
+      localStorage.setItem(DAILY_NOTES_KEY, JSON.stringify(''));
     } catch {}
     showToast('Note cleared.');
   };
@@ -2680,21 +2683,21 @@ export default function DailyScheduler({
                 <div>
                   <h2 className="text-sm font-black text-black tracking-tight">Daily Notes</h2>
                   <p className="text-[10px] font-medium text-neutral-400">
-                    {new Date(selectedDate + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}
+                    Shared across all days
                   </p>
                 </div>
               </div>
-              {(dailyNotes[selectedDate] || '').trim().length > 0 && (
+              {(dailyNote || '').trim().length > 0 && (
                 <span className="text-[10px] font-black bg-emerald-50 text-emerald-700 px-2.5 py-1 rounded-full border border-emerald-200 flex items-center gap-1">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block" />
-                  Filled
+                  Saved
                 </span>
               )}
             </div>
 
             {/* Single unified daily note */}
             {(() => {
-              const savedText = dailyNotes[selectedDate] ?? '';
+              const savedText = dailyNote;
               const draftText = dailyNoteDraft ?? savedText;
               const isDirty = draftText !== savedText;
               const hasContent = savedText.trim().length > 0;
@@ -2702,13 +2705,13 @@ export default function DailyScheduler({
                 <div className="px-4 py-4 space-y-3">
                   {/* Helper tip */}
                   <p className="text-[11px] font-medium text-neutral-400 leading-relaxed">
-                    Jot down anything important for today — goals, reminders, reflections, or focus points.
+                    Jot down anything important — goals, reminders, reflections, or focus points. This note is shared across all days.
                   </p>
 
                   {/* Textarea */}
                   <textarea
                     rows={10}
-                    placeholder={`Write today's notes here...\n\n• Goals for today\n• Things to remember\n• Reflections\n• Ideas`}
+                    placeholder={`Write your notes here...\n\n• Goals\n• Things to remember\n• Reflections\n• Ideas`}
                     value={draftText}
                     onChange={e => setDailyNoteDraft(e.target.value)}
                     className="w-full bg-neutral-50 border border-neutral-200 focus:border-black focus:bg-white rounded-xl px-3.5 py-3 text-xs font-medium text-black placeholder:text-neutral-400 focus:outline-none transition resize-none leading-relaxed"
@@ -2738,38 +2741,6 @@ export default function DailyScheduler({
                       </button>
                     )}
                   </div>
-
-                  {/* Past notes quick-look: show last 3 days with content */}
-                  {(() => {
-                    const recentFilled = Array.from({ length: 7 }, (_, i) => {
-                      const d = new Date(selectedDate + 'T00:00:00');
-                      d.setDate(d.getDate() - (i + 1));
-                      const ds = formatDateString(d);
-                      return { ds, text: dailyNotes[ds] ?? '' };
-                    }).filter(x => x.text.trim().length > 0).slice(0, 3);
-
-                    if (recentFilled.length === 0) return null;
-                    return (
-                      <div className="pt-3 border-t border-neutral-100 space-y-2">
-                        <span className="text-[10px] font-black uppercase tracking-wider text-neutral-400">Recent Days</span>
-                        {recentFilled.map(({ ds, text }) => {
-                          const d = new Date(ds + 'T00:00:00');
-                          const label = d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
-                          return (
-                            <button
-                              key={ds}
-                              type="button"
-                              onClick={() => setSelectedDate(ds)}
-                              className="w-full text-left px-3 py-2.5 rounded-xl border border-neutral-200 bg-neutral-50 hover:border-black hover:bg-white transition cursor-pointer space-y-0.5"
-                            >
-                              <div className="text-[10px] font-black text-neutral-500 uppercase tracking-wider">{label}</div>
-                              <div className="text-xs font-medium text-black line-clamp-2 leading-relaxed">{text}</div>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    );
-                  })()}
                 </div>
               );
             })()}
