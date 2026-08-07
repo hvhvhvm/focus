@@ -846,6 +846,7 @@ export default function App() {
                 nutritionToday={nutritionToday}
                 nutritionTargets={nutritionTargets}
                 todaysFoodLog={todaysFoodLog}
+                loggedFoods={loggedFoods}
                 onUpdateNutritionTargets={handleUpdateNutritionTargets}
                 onOpenLogFoodForBlock={openLogFoodForBlock}
                 onRefresh={handleRefreshData}

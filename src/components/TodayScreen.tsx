@@ -406,6 +406,7 @@ interface TodayScreenProps {
   nutritionToday: { protein: number; carbs: number; fats: number; fiber: number; calories: number };
   nutritionTargets?: NutritionTargets;
   todaysFoodLog?: LoggedFood[];
+  loggedFoods?: LoggedFood[];
   onUpdateNutritionTargets?: (targets: NutritionTargets) => void;
   onOpenLogFoodForBlock?: (block: 'Morning' | 'Afternoon' | 'Evening' | 'Night') => void;
   onRefresh?: () => Promise<void>;
@@ -424,7 +425,7 @@ interface TodayScreenProps {
 
 export default function TodayScreen({
   habits, routines, dateToday, onLogHabit, onBatchLogHabits, userPoints, currentUser,
-  nutritionTargets, onUpdateNutritionTargets, todaysFoodLog = [], onOpenLogFoodForBlock,
+  nutritionTargets, onUpdateNutritionTargets, todaysFoodLog = [], loggedFoods = [], onOpenLogFoodForBlock,
   onRefresh,
   focusedHabitIds = [], onToggleFocusHabit,
   onDeleteHabit, onEditHabit, onDeleteRoutine, onEditRoutine, onFinishDay,
@@ -674,7 +675,7 @@ export default function TodayScreen({
       {modeTab === 'scheduler' ? (
         <div className="px-4 py-3">
           <DailyScheduler
-            loggedFoods={todaysFoodLog}
+            loggedFoods={loggedFoods.length > 0 ? loggedFoods : todaysFoodLog}
             nutritionTargets={nutritionTargets}
             onUpdateNutritionTargets={onUpdateNutritionTargets}
             onOpenLogFoodForBlock={onOpenLogFoodForBlock}

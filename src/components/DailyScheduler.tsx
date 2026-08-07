@@ -23,6 +23,9 @@ import {
   Bell,
   BellOff,
   Repeat2,
+  Star,
+  FileText,
+  ClipboardList,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { formatDateString, dateToday } from '../data';
@@ -70,6 +73,16 @@ export interface SchedulerTask {
   recurrenceTemplateId?: string;
 }
 
+export interface PlanningNote {
+  id: string;
+  text: string;
+  completed: boolean;
+  scheduledDate?: string;
+  scheduledBlock?: TimeBlock;
+  scheduledTaskId?: string;
+  createdAt: string;
+}
+
 // ─── Constants ─────────────────────────────────────────────────────────────
 
 const STORAGE_KEY = 'focus_now_daily_scheduler_tasks_v10';
@@ -77,6 +90,8 @@ const LOCAL_NUTRITION_TARGETS_KEY = 'focus_now_scheduler_protein_targets_v1';
 const APP_NUTRITION_TARGETS_KEY = '90day_nutrition_targets';
 const APP_LOGGED_FOODS_KEY = '90day_logged_foods';
 const NOTIF_BANNER_KEY   = 'focus_now_notif_banner_dismissed';
+const DAILY_NOTES_KEY    = 'focus_now_daily_notes_v2';
+
 const DAY_BRIEFING_HOUR  = 6; // 6:00 AM every day
 const DAY_BRIEFING_MIN   = 0;
 
@@ -378,7 +393,47 @@ export default function DailyScheduler({
   );
   const [localLoggedFoods, setLocalLoggedFoods] = useState<DailySchedulerProps['loggedFoods']>(readStoredLoggedFoods);
   const [editingProteinGoal, setEditingProteinGoal] = useState<{ block: TimeBlock; value: string } | null>(null);
+  const [editingTotalProteinGoal, setEditingTotalProteinGoal] = useState<string | null>(null);
+  const [sleepLogs, setSleepLogs] = useState<Record<string, { hours: number; quality: number; goal: number }>>(() => {
+    try {
+      const saved = localStorage.getItem('focus_now_scheduler_sleep_logs_v1');
+      return saved ? JSON.parse(saved) : {};
+    } catch {
+      return {};
+    }
+  });
+  const [isEditingSleep, setIsEditingSleep] = useState(false);
+  const [editSleepHours, setEditSleepHours] = useState('7.5');
+  const [editSleepQuality, setEditSleepQuality] = useState(4);
+  const [editSleepGoal, setEditSleepGoal] = useState('8');
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  // ── Weekly Planning Notes State ───────────────────────────────────────────
+  const [planningNotes, setPlanningNotes] = useState<PlanningNote[]>(() => {
+    try {
+      const saved = localStorage.getItem('focus_now_weekly_planning_notes_v1');
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    return [];
+  });
+  const [newNoteText, setNewNoteText] = useState('');
+  const [schedulingNoteId, setSchedulingNoteId] = useState<string | null>(null);
+  const [noteScheduleDate, setNoteScheduleDate] = useState<string>('');
+  const [noteScheduleBlock, setNoteScheduleBlock] = useState<TimeBlock>('Morning');
+  const [notesFilter, setNotesFilter] = useState<'all' | 'scheduled' | 'unscheduled'>('all');
+
+  // ── Daily Notes State ─────────────────────────────────────────────────────
+  // dailyNotes shape: { [dateStr]: string }
+  const [dailyNotes, setDailyNotes] = useState<Record<string, string>>(() => {
+    try {
+      const saved = localStorage.getItem(DAILY_NOTES_KEY);
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    return {};
+  });
+  // Draft text for the currently selected date (before save)
+  const [dailyNoteDraft, setDailyNoteDraft] = useState<string | null>(null);
+
 
   // ── Inline task creator ───────────────────────────────────────────────────
   const [inlineTaskInput, setInlineTaskInput] = useState<{
@@ -424,9 +479,49 @@ export default function DailyScheduler({
 
   // ── Effects ───────────────────────────────────────────────────────────────
 
+  // Clear note draft on date change
+  useEffect(() => {
+    setDailyNoteDraft(null);
+  }, [selectedDate]);
+
   // Persist tasks
   useEffect(() => {
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(tasks)); } catch {}
+  }, [tasks]);
+
+  // Persist weekly planning notes
+  useEffect(() => {
+    try {
+      localStorage.setItem('focus_now_weekly_planning_notes_v1', JSON.stringify(planningNotes));
+    } catch {}
+  }, [planningNotes]);
+
+  // Sync planning notes completion & deletion with main tasks
+  useEffect(() => {
+    setPlanningNotes(prev => {
+      let changed = false;
+      const next = prev.map(note => {
+        if (!note.scheduledTaskId) return note;
+        const linkedTask = tasks.find(t => t.id === note.scheduledTaskId);
+        if (linkedTask) {
+          if (note.completed !== linkedTask.completed) {
+            changed = true;
+            return { ...note, completed: linkedTask.completed };
+          }
+        } else {
+          // If the task was deleted in the main scheduler, remove link in note
+          changed = true;
+          return {
+            ...note,
+            scheduledTaskId: undefined,
+            scheduledDate: undefined,
+            scheduledBlock: undefined,
+          };
+        }
+        return note;
+      });
+      return changed ? next : prev;
+    });
   }, [tasks]);
 
   // Sync nutrition targets from parent
@@ -662,6 +757,27 @@ export default function DailyScheduler({
   const activeNutritionTargets = mergeTargets(localNutritionTargets, nutritionTargets);
   const schedulerLoggedFoods   = loggedFoods.length > 0 ? loggedFoods : (localLoggedFoods || []);
 
+  const totalProteinConsumed = useMemo(() => {
+    const targetFoods = schedulerLoggedFoods.filter(f => f.date === selectedDate || (!f.date && selectedDate === dateToday));
+    return targetFoods.reduce((sum, f) => sum + (f.protein || 0), 0);
+  }, [schedulerLoggedFoods, selectedDate]);
+
+  const totalProteinGoal = useMemo(() => {
+    const blocks: TimeBlock[] = ['Morning', 'Afternoon', 'Evening', 'Night'];
+    return blocks.reduce((sum, b) => sum + getBlockProteinGoal(b, activeNutritionTargets), 0);
+  }, [activeNutritionTargets]);
+
+  const proteinCompletionPercentage = useMemo(() => {
+    return totalProteinGoal > 0 ? Math.min(100, Math.round((totalProteinConsumed / totalProteinGoal) * 100)) : 0;
+  }, [totalProteinConsumed, totalProteinGoal]);
+
+  const currentSleepLog = sleepLogs[selectedDate];
+  const sleepCompletionPercentage = useMemo(() => {
+    if (!currentSleepLog) return 0;
+    const goal = currentSleepLog.goal || 8;
+    return goal > 0 ? Math.min(100, Math.round((currentSleepLog.hours / goal) * 100)) : 0;
+  }, [currentSleepLog]);
+
   const tasksForSelectedDate = useMemo(
     () => tasks.filter(t => !t.isRecurrenceTemplate && t.date === selectedDate),
     [tasks, selectedDate]
@@ -733,6 +849,89 @@ export default function DailyScheduler({
     onUpdateNutritionTargets?.(nextTargets);
     showToast(`${editingProteinGoal.block} protein goal → ${nextGoal}g`);
     setEditingProteinGoal(null);
+  };
+
+  const handleSaveTotalProteinGoal = () => {
+    if (editingTotalProteinGoal === null) return;
+    const parsed = Number.parseFloat(editingTotalProteinGoal);
+    const nextGoal = Number.isFinite(parsed) ? Math.max(0, Math.round(parsed)) : 150;
+    const nextTargets = { ...activeNutritionTargets, protein: nextGoal };
+    setLocalNutritionTargets(nextTargets);
+    try {
+      localStorage.setItem(LOCAL_NUTRITION_TARGETS_KEY, JSON.stringify(nextTargets));
+      localStorage.setItem(APP_NUTRITION_TARGETS_KEY,   JSON.stringify(nextTargets));
+    } catch {}
+    onUpdateNutritionTargets?.(nextTargets);
+    showToast(`Daily protein goal → ${nextGoal}g`);
+    setEditingTotalProteinGoal(null);
+  };
+
+  const handleSaveSleepLog = () => {
+    const hours = Number.parseFloat(editSleepHours);
+    const goal = Number.parseFloat(editSleepGoal);
+    const validatedHours = Number.isFinite(hours) ? Math.max(0, Math.min(24, hours)) : 7.5;
+    const validatedGoal = Number.isFinite(goal) ? Math.max(1, Math.min(24, goal)) : 8;
+    const validatedQuality = Math.max(1, Math.min(5, editSleepQuality));
+
+    const nextLogs = {
+      ...sleepLogs,
+      [selectedDate]: {
+        hours: validatedHours,
+        quality: validatedQuality,
+        goal: validatedGoal,
+      },
+    };
+    setSleepLogs(nextLogs);
+    try {
+      localStorage.setItem('focus_now_scheduler_sleep_logs_v1', JSON.stringify(nextLogs));
+    } catch {}
+    showToast(`Sleep logged for ${selectedDate}: ${validatedHours}h (${'★'.repeat(validatedQuality)})`);
+    setIsEditingSleep(false);
+  };
+
+  const handleDeleteSleepLog = () => {
+    const nextLogs = { ...sleepLogs };
+    delete nextLogs[selectedDate];
+    setSleepLogs(nextLogs);
+    try {
+      localStorage.setItem('focus_now_scheduler_sleep_logs_v1', JSON.stringify(nextLogs));
+    } catch {}
+    showToast('Sleep log removed.');
+    setIsEditingSleep(false);
+  };
+
+  const handleSaveDailyNote = () => {
+    const text = (dailyNoteDraft ?? (dailyNotes[selectedDate] ?? '')).trim();
+    const nextNotes = { ...dailyNotes, [selectedDate]: text };
+    setDailyNotes(nextNotes);
+    setDailyNoteDraft(null);
+    try {
+      localStorage.setItem(DAILY_NOTES_KEY, JSON.stringify(nextNotes));
+    } catch {}
+    showToast('Daily note saved ✓');
+  };
+
+  const handleClearDailyNote = () => {
+    const nextNotes = { ...dailyNotes, [selectedDate]: '' };
+    setDailyNotes(nextNotes);
+    setDailyNoteDraft(null);
+    try {
+      localStorage.setItem(DAILY_NOTES_KEY, JSON.stringify(nextNotes));
+    } catch {}
+    showToast('Note cleared.');
+  };
+
+  const startEditingSleep = () => {
+    if (currentSleepLog) {
+      setEditSleepHours(String(currentSleepLog.hours));
+      setEditSleepQuality(currentSleepLog.quality);
+      setEditSleepGoal(String(currentSleepLog.goal || 8));
+    } else {
+      setEditSleepHours('7.5');
+      setEditSleepQuality(4);
+      setEditSleepGoal('8');
+    }
+    setIsEditingSleep(true);
   };
 
   // Toggle task completion
@@ -1029,6 +1228,137 @@ export default function DailyScheduler({
     setDragState({ draggingId: null, dragOverId: null, dragOverBlock: null });
   };
 
+  // ── Weekly Planning Notes Handlers ────────────────────────────────────────
+  const getWeekDates = useCallback((centerDateStr: string) => {
+    const d = new Date((centerDateStr || dateToday) + 'T00:00:00');
+    const day = d.getDay();
+    const diff = d.getDate() - day + (day === 0 ? -6 : 1);
+    const monday = new Date(d.setDate(diff));
+
+    const week: { dateStr: string; label: string; dayShort: string; isToday: boolean }[] = [];
+    for (let i = 0; i < 7; i++) {
+      const curr = new Date(monday);
+      curr.setDate(monday.getDate() + i);
+      const dateStr = formatDateString(curr);
+      const dayShort = curr.toLocaleDateString('en-US', { weekday: 'short' });
+      const monthShort = curr.toLocaleDateString('en-US', { month: 'short' });
+      const dayNum = curr.getDate();
+      const isToday = dateStr === dateToday;
+      week.push({
+        dateStr,
+        label: `${dayShort}, ${monthShort} ${dayNum}${isToday ? ' (Today)' : ''}`,
+        dayShort,
+        isToday,
+      });
+    }
+    return week;
+  }, []);
+
+  const handleAddNote = (text: string) => {
+    const trimmed = text.trim();
+    if (!trimmed) return;
+    const newNote: PlanningNote = {
+      id: 'note_' + Math.random().toString(36).substring(2, 9),
+      text: trimmed,
+      completed: false,
+      createdAt: new Date().toISOString(),
+    };
+    setPlanningNotes(prev => [newNote, ...prev]);
+    setNewNoteText('');
+    showToast('Note added to Weekly Notepad');
+  };
+
+  const handleToggleNoteCompleted = (noteId: string) => {
+    setPlanningNotes(prev => prev.map(n => {
+      if (n.id !== noteId) return n;
+      const nextCompleted = !n.completed;
+      if (n.scheduledTaskId) {
+        setTasks(tPrev => tPrev.map(t => t.id === n.scheduledTaskId ? { ...t, completed: nextCompleted } : t));
+      }
+      return { ...n, completed: nextCompleted };
+    }));
+  };
+
+  const handleDeleteNote = (noteId: string) => {
+    const target = planningNotes.find(n => n.id === noteId);
+    if (target?.scheduledTaskId) {
+      setTasks(prev => prev.filter(t => t.id !== target.scheduledTaskId));
+    }
+    setPlanningNotes(prev => prev.filter(n => n.id !== noteId));
+    if (schedulingNoteId === noteId) setSchedulingNoteId(null);
+    showToast('Note deleted');
+  };
+
+  const handleScheduleNote = (noteId: string, dateStr: string, timeBlock: TimeBlock) => {
+    const note = planningNotes.find(n => n.id === noteId);
+    if (!note) return;
+
+    let taskId = note.scheduledTaskId;
+    if (taskId) {
+      setTasks(prev => prev.map(t => {
+        if (t.id !== taskId) return t;
+        return {
+          ...t,
+          date: dateStr,
+          timeBlock: timeBlock,
+          title: note.text,
+        };
+      }));
+    } else {
+      taskId = 'task_note_' + Math.random().toString(36).substring(2, 9);
+      const newTask: SchedulerTask = {
+        id: taskId,
+        date: dateStr,
+        timeBlock: timeBlock,
+        title: note.text,
+        completed: note.completed,
+        type: 'standard',
+        createdAt: new Date().toISOString(),
+      };
+      setTasks(prev => [...prev, newTask]);
+    }
+
+    setPlanningNotes(prev => prev.map(n => {
+      if (n.id !== noteId) return n;
+      return {
+        ...n,
+        scheduledDate: dateStr,
+        scheduledBlock: timeBlock,
+        scheduledTaskId: taskId,
+      };
+    }));
+
+    setSchedulingNoteId(null);
+    const dateObj = new Date(dateStr + 'T00:00:00');
+    const dayLabel = dateObj.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+    showToast(`Scheduled note for ${dayLabel} (${timeBlock})`);
+  };
+
+  const handleUnscheduleNote = (noteId: string) => {
+    const note = planningNotes.find(n => n.id === noteId);
+    if (note?.scheduledTaskId) {
+      setTasks(prev => prev.filter(t => t.id !== note.scheduledTaskId));
+    }
+    setPlanningNotes(prev => prev.map(n => {
+      if (n.id !== noteId) return n;
+      return {
+        ...n,
+        scheduledDate: undefined,
+        scheduledBlock: undefined,
+        scheduledTaskId: undefined,
+      };
+    }));
+    setSchedulingNoteId(null);
+    showToast('Unscheduled task');
+  };
+
+  const handleJumpToScheduledNote = (dateStr?: string, block?: TimeBlock) => {
+    if (!dateStr || !block) return;
+    setSelectedDate(dateStr);
+    handleShowBlock(block, true);
+    showToast(`Jumped to ${dateStr} • ${block}`);
+  };
+
   // ── Notification handlers ─────────────────────────────────────────────────
 
   const handleRequestNotifPermission = async () => {
@@ -1063,7 +1393,7 @@ export default function DailyScheduler({
     !notifBannerDismissed;
 
   return (
-    <div className="max-w-3xl mx-auto space-y-6 select-none pb-20 font-sans">
+    <div className="max-w-7xl mx-auto space-y-6 select-none pb-20 font-sans px-2 sm:px-4">
 
       {/* ── Toast ─────────────────────────────────────────────────────────── */}
       <AnimatePresence>
@@ -1160,7 +1490,11 @@ export default function DailyScheduler({
         )}
       </AnimatePresence>
 
-      {/* ── Header ───────────────────────────────────────────────────────────── */}
+      {/* ── Grid Container ─────────────────────────────────────────────────── */}
+      <div className="lg:grid lg:grid-cols-12 lg:gap-6 items-start space-y-6 lg:space-y-0">
+        {/* ── Left Column: Scheduler & Trackers ────────────────────────────── */}
+        <div className="lg:col-span-7 xl:col-span-8 space-y-6">
+          {/* ── Header ───────────────────────────────────────────────────────────── */}
       <div className="bg-white border border-neutral-200 rounded-2xl p-4 sm:p-5 shadow-xs">
         <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
           <div>
@@ -1210,6 +1544,13 @@ export default function DailyScheduler({
               <Copy className="w-3.5 h-3.5 text-neutral-300" />
               <span>Replicate to Tomorrow</span>
             </button>
+            <a
+              href="#weekly-planning-notes-section"
+              className="h-9 lg:hidden flex items-center gap-1.5 px-3 bg-neutral-900 hover:bg-black text-white text-xs font-bold rounded-xl transition shadow-xs cursor-pointer"
+            >
+              <ClipboardList className="w-3.5 h-3.5 text-amber-400" />
+              <span>Notes ({planningNotes.length})</span>
+            </a>
           </div>
         </div>
 
@@ -1226,11 +1567,14 @@ export default function DailyScheduler({
 
           <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-none">
             {datesStrip.map((item) => {
-              const stats  = completionByDate[item.dateStr];
-              const pct    = stats && stats.total > 0 ? Math.round((stats.done / stats.total) * 100) : -1;
-              const dotColor = pct >= 80 ? '#22c55e' : pct >= 30 ? '#f59e0b' : pct >= 0 ? '#9ca3af' : 'transparent';
-              const tooltip  = stats && stats.total > 0
-                ? `${item.dayName} ${item.dayNumber} — ${stats.done}/${stats.total} done (${pct}%)`
+              const stats = completionByDate[item.dateStr];
+              const total = stats?.total || 0;
+              const done = stats?.done || 0;
+              const pct = total > 0 ? Math.round((done / total) * 100) : -1;
+              const isFull = pct === 100;
+
+              const tooltip = total > 0
+                ? `${item.dayName} ${item.dayNumber} — ${done}/${total} done (${pct}%)`
                 : `${item.dayName} ${item.dayNumber} — No tasks`;
 
               return (
@@ -1239,45 +1583,49 @@ export default function DailyScheduler({
                   type="button"
                   onClick={() => setSelectedDate(item.dateStr)}
                   title={tooltip}
-                  className={`flex-shrink-0 flex flex-col items-center justify-center w-12 py-2 rounded-xl border transition-all cursor-pointer ${
+                  className={`flex-shrink-0 flex flex-col items-center justify-center w-12 h-15 py-1.5 px-1 rounded-xl border transition-all cursor-pointer ${
                     item.isSelected
-                      ? 'bg-black text-white border-black shadow-md scale-105'
+                      ? 'bg-black text-white border-black shadow-sm scale-105'
+                      : isFull
+                      ? 'bg-neutral-900 text-white border-neutral-900 shadow-2xs'
                       : item.isToday
                       ? 'bg-neutral-100 text-black border-neutral-300 font-bold'
-                      : 'bg-white text-neutral-600 border-neutral-200 hover:border-neutral-400 hover:bg-neutral-50'
+                      : 'bg-white text-neutral-600 border-neutral-200 hover:border-neutral-400'
                   }`}
                 >
-                  <span className={`text-[9px] font-bold tracking-wider uppercase ${item.isSelected ? 'text-neutral-400' : 'text-neutral-400'}`}>
+                  <span className={`text-[9px] font-bold tracking-wider uppercase ${
+                    item.isSelected || isFull ? 'text-neutral-400' : 'text-neutral-400'
+                  }`}>
                     {item.dayName}
                   </span>
-                  <span className={`text-sm font-black mt-0.5 ${item.isSelected ? 'text-white' : 'text-black'}`}>
+
+                  <span className={`text-sm font-black mt-0.5 ${
+                    item.isSelected || isFull ? 'text-white' : 'text-black'
+                  }`}>
                     {item.dayNumber}
                   </span>
 
-                  {pct >= 0 ? (
-                    <span
-                      className="w-3.5 h-0.5 rounded-full mt-1 transition-all duration-300"
-                      style={{ backgroundColor: item.isSelected ? 'rgba(255,255,255,0.6)' : dotColor }}
-                    />
+                  {/* Minimalist status indicator dot/bar */}
+                  {isFull ? (
+                    <span className="text-[9px] font-black text-emerald-400 mt-0.5">✓</span>
+                  ) : pct > 0 ? (
+                    <span className="w-3.5 h-1 rounded-full bg-emerald-500 mt-1" />
                   ) : item.isToday && !item.isSelected ? (
                     <span className="w-1.5 h-1.5 rounded-full bg-black mt-1" />
                   ) : (
-                    <span className="w-3.5 h-0.5 mt-1" />
+                    <span className="h-1 mt-1" />
                   )}
                 </button>
               );
             })}
           </div>
 
-          <div className="hidden sm:flex items-center gap-4 mt-1 pl-1">
-            <span className="text-[10px] font-semibold text-neutral-400 flex items-center gap-1">
-              <span className="w-3 h-0.5 rounded-full bg-green-400 inline-block" /> ≥80%
+          <div className="hidden sm:flex items-center gap-4 mt-2 pl-1">
+            <span className="text-[10px] font-bold text-neutral-500 flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block" /> Completed
             </span>
-            <span className="text-[10px] font-semibold text-neutral-400 flex items-center gap-1">
-              <span className="w-3 h-0.5 rounded-full bg-amber-400 inline-block" /> 30–79%
-            </span>
-            <span className="text-[10px] font-semibold text-neutral-400 flex items-center gap-1">
-              <span className="w-3 h-0.5 rounded-full bg-neutral-300 inline-block" /> &lt;30%
+            <span className="text-[10px] font-semibold text-neutral-400 flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-neutral-300 inline-block" /> Planned
             </span>
           </div>
         </div>
@@ -1324,18 +1672,257 @@ export default function DailyScheduler({
             </div>
           </div>
 
-          <div className="mt-3 flex items-center gap-3">
-            <div className="flex items-center gap-1.5 text-[11px] font-black text-black shrink-0">
-              <CheckCircle2 className="w-3.5 h-3.5 text-black" />
-              <span>{completedTasksCount}/{totalTasksCount}</span>
+          <div className="mt-4 pt-3.5 border-t border-neutral-100 space-y-3.5">
+            {/* Task Completion */}
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-1.5 text-[11px] font-black text-black shrink-0 w-28">
+                <CheckCircle2 className="w-3.5 h-3.5 text-black" />
+                <span>Task Progress</span>
+              </div>
+              <div className="flex-1 bg-neutral-100 rounded-full h-2 overflow-hidden border border-neutral-200">
+                <div
+                  className="bg-emerald-500 h-full transition-all duration-500 rounded-full"
+                  style={{ width: `${completionPercentage}%` }}
+                />
+              </div>
+              <div className="text-[11px] font-black text-black w-20 text-right shrink-0">
+                {completedTasksCount}/{totalTasksCount} ({completionPercentage}%)
+              </div>
             </div>
-            <div className="flex-1 bg-neutral-100 rounded-full h-1.5 overflow-hidden border border-neutral-200">
-              <div
-                className="bg-black h-full transition-all duration-500 rounded-full"
-                style={{ width: `${completionPercentage}%` }}
-              />
+
+            {/* Protein Progress — shows every day */}
+            <div className="flex items-center gap-3 min-h-[24px]">
+              <div className="flex items-center gap-1.5 text-[11px] font-black text-black shrink-0 w-28">
+                <span className="text-xs">🥩</span>
+                <span>Protein Intake</span>
+              </div>
+              <div className="flex-1 bg-neutral-100 rounded-full h-2 overflow-hidden border border-neutral-200">
+                <div
+                  className="bg-emerald-500 h-full transition-all duration-500 rounded-full"
+                  style={{ width: `${proteinCompletionPercentage}%` }}
+                />
+              </div>
+              {editingTotalProteinGoal !== null ? (
+                <form
+                  onSubmit={e => { e.preventDefault(); handleSaveTotalProteinGoal(); }}
+                  className="flex items-center gap-1 shrink-0 select-text"
+                  onClick={e => e.stopPropagation()}
+                >
+                  <input
+                    type="number"
+                    min="1"
+                    value={editingTotalProteinGoal}
+                    onChange={e => setEditingTotalProteinGoal(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Escape') setEditingTotalProteinGoal(null); }}
+                    className="w-12 h-6 rounded-md border border-black bg-white px-1 text-[10px] font-black text-black text-center focus:outline-none"
+                    autoFocus
+                  />
+                  <button
+                    type="submit"
+                    className="w-6 h-6 rounded-md bg-black text-white flex items-center justify-center hover:bg-neutral-800 cursor-pointer transition active:scale-95"
+                    title="Save"
+                  >
+                    <Check className="w-3 h-3 stroke-[3]" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setEditingTotalProteinGoal(null)}
+                    className="w-6 h-6 rounded-md border border-neutral-300 text-neutral-500 hover:text-black flex items-center justify-center cursor-pointer transition active:scale-95 bg-white"
+                    title="Cancel"
+                  >
+                    <X className="w-3 h-3 stroke-[3]" />
+                  </button>
+                </form>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setEditingTotalProteinGoal(String(totalProteinGoal))}
+                  disabled={!onUpdateNutritionTargets}
+                  title="Click to edit daily protein goal"
+                  className="text-[11px] font-black text-black w-20 text-right shrink-0 hover:text-neutral-600 flex items-center justify-end gap-1 group transition-colors cursor-pointer"
+                >
+                  <span>{totalProteinConsumed}g/{totalProteinGoal}g</span>
+                  <span className="text-[10px] text-neutral-400 group-hover:text-black opacity-0 group-hover:opacity-100 transition-opacity">
+                    <Pencil className="w-2.5 h-2.5" />
+                  </span>
+                  <span>({proteinCompletionPercentage}%)</span>
+                </button>
+              )}
             </div>
-            <span className="text-[11px] font-black text-black w-8 text-right">{completionPercentage}%</span>
+
+
+            {/* Sleep & Recovery Progress */}
+            <div className="space-y-2">
+              <div className="flex items-center gap-3 min-h-[24px]">
+                <div className="flex items-center gap-1.5 text-[11px] font-black text-violet-700 shrink-0 w-28">
+                  <span className="text-xs">🛌</span>
+                  <span>Sleep & Rest</span>
+                </div>
+                {currentSleepLog ? (
+                  <>
+                    <div className="flex-1 bg-neutral-100 rounded-full h-2 overflow-hidden border border-neutral-200">
+                      <div
+                        className="bg-violet-600 h-full transition-all duration-500 rounded-full"
+                        style={{ width: `${sleepCompletionPercentage}%` }}
+                      />
+                    </div>
+                    {!isEditingSleep && (
+                      <button
+                        type="button"
+                        onClick={startEditingSleep}
+                        title="Click to edit sleep log"
+                        className="text-[11px] font-black text-violet-700 w-20 text-right shrink-0 hover:text-violet-950 flex items-center justify-end gap-1 group transition-colors cursor-pointer"
+                      >
+                        <span>{currentSleepLog.hours}h/{currentSleepLog.goal || 8}h</span>
+                        <span className="text-[10px] text-neutral-400 group-hover:text-black opacity-0 group-hover:opacity-100 transition-opacity">
+                          <Pencil className="w-2.5 h-2.5" />
+                        </span>
+                        <span>({sleepCompletionPercentage}%)</span>
+                      </button>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    <div className="flex-1 text-[11px] font-semibold text-neutral-400 italic">
+                      No sleep logged for this day
+                    </div>
+                    {!isEditingSleep && (
+                      <button
+                        type="button"
+                        onClick={startEditingSleep}
+                        className="h-6 px-2.5 rounded-lg border border-violet-200 bg-violet-50 text-violet-700 hover:bg-violet-100 hover:border-violet-300 text-[10px] font-black flex items-center gap-1 transition cursor-pointer active:scale-95 shrink-0"
+                      >
+                        <Moon className="w-3 h-3 text-violet-600" />
+                        <span>Log Sleep</span>
+                      </button>
+                    )}
+                  </>
+                )}
+              </div>
+
+              {/* Inline Sleep Editor Form */}
+              {isEditingSleep && (
+                <div
+                  className="p-3.5 rounded-2xl border border-violet-200 bg-violet-50/50 space-y-3 select-text"
+                  onClick={e => e.stopPropagation()}
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div className="flex items-center gap-4">
+                      <div>
+                        <label className="text-[9px] font-black uppercase text-violet-500 block mb-0.5">Hours Slept</label>
+                        <input
+                          type="number"
+                          step="0.5"
+                          min="0"
+                          max="24"
+                          value={editSleepHours}
+                          onChange={e => setEditSleepHours(e.target.value)}
+                          className="w-16 h-7 rounded-lg border border-neutral-300 bg-white px-2 text-xs font-black text-black focus:border-violet-500 focus:outline-none"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[9px] font-black uppercase text-violet-500 block mb-0.5">Goal Target</label>
+                        <input
+                          type="number"
+                          step="0.5"
+                          min="1"
+                          max="24"
+                          value={editSleepGoal}
+                          onChange={e => setEditSleepGoal(e.target.value)}
+                          className="w-16 h-7 rounded-lg border border-neutral-300 bg-white px-2 text-xs font-black text-black focus:border-violet-500 focus:outline-none"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="text-[9px] font-black uppercase text-violet-500 block mb-1">Quality Rating</label>
+                      <div className="flex items-center gap-1 bg-white p-1 rounded-lg border border-neutral-200">
+                        {[1, 2, 3, 4, 5].map(star => (
+                          <button
+                            key={star}
+                            type="button"
+                            onClick={() => setEditSleepQuality(star)}
+                            className="p-0.5 hover:scale-110 active:scale-90 transition cursor-pointer"
+                            title={`Rate ${star} star${star > 1 ? 's' : ''}`}
+                          >
+                            <Star
+                              className={`w-4 h-4 ${
+                                star <= editSleepQuality
+                                  ? 'fill-amber-400 text-amber-400'
+                                  : 'text-neutral-300'
+                              }`}
+                            />
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-end gap-2 pt-1 border-t border-violet-100">
+                    <button
+                      type="button"
+                      onClick={() => setIsEditingSleep(false)}
+                      className="px-3 py-1.5 rounded-lg border border-neutral-300 text-neutral-600 hover:text-black bg-white text-[10px] font-black cursor-pointer active:scale-95 transition"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleSaveSleepLog}
+                      className="px-3 py-1.5 rounded-lg bg-violet-600 hover:bg-violet-700 text-white text-[10px] font-black cursor-pointer active:scale-95 transition flex items-center gap-1"
+                    >
+                      <Check className="w-3.5 h-3.5 stroke-[3]" />
+                      <span>Save Log</span>
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Recovery Status Card */}
+              {currentSleepLog && !isEditingSleep && (() => {
+                const ratingInfo = [
+                  { badge: '🔴 Poor Recovery', msg: 'Sleep quality was low. Keep tasks light, focus on slow pacing, hydration, and wind down early tonight. 🛌', color: 'border-rose-200 bg-rose-50 text-rose-700' },
+                  { badge: '🟡 Low Recovery', msg: 'Rest was subpar. Avoid heavy stress, watch caffeine timing, and schedule a 15-minute rest block. 🧘', color: 'border-amber-200 bg-amber-50 text-amber-800' },
+                  { badge: '🔵 Fair Recovery', msg: 'Decent rest. Keep hydrated, stay active in blocks, and aim for a structured wind-down tonight. ☕', color: 'border-blue-200 bg-blue-50/70 text-blue-700' },
+                  { badge: '🟢 Great Recovery', msg: 'Good sleep! Energy systems are stable. Ready to execute your time blocks effectively. 💪', color: 'border-emerald-200 bg-emerald-50/70 text-emerald-800' },
+                  { badge: '🔥 Peak Recovery', msg: 'Superb sleep quality! Recovery is optimal. Lock-in mode is active. Crush your hardest tasks today! 🚀', color: 'border-violet-200 bg-violet-50 text-violet-800' }
+                ][currentSleepLog.quality - 1] || { badge: 'Sleep Logged', msg: 'Sleep log saved successfully.', color: 'border-neutral-200 bg-neutral-50 text-neutral-800' };
+
+                return (
+                  <div className={`p-3 rounded-2xl border ${ratingInfo.color} flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 transition`}>
+                    <div className="flex items-start gap-2.5 min-w-0">
+                      <span className="text-base shrink-0 mt-0.5">💤</span>
+                      <div className="min-w-0">
+                        <span className="inline-block text-[9px] font-black uppercase px-2 py-0.5 rounded-full border border-current tracking-wider mb-1">
+                          {ratingInfo.badge}
+                        </span>
+                        <p className="text-[11px] font-semibold leading-relaxed">
+                          {ratingInfo.msg}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
+                      {Array.from({ length: 5 }).map((_, i) => (
+                        <Star
+                          key={i}
+                          className={`w-3.5 h-3.5 ${
+                            i < currentSleepLog.quality ? 'fill-amber-400 text-amber-400' : 'text-neutral-300'
+                          }`}
+                        />
+                      ))}
+                      <button
+                        type="button"
+                        onClick={handleDeleteSleepLog}
+                        title="Remove sleep log"
+                        className="ml-1 w-6 h-6 rounded-lg bg-white/60 hover:bg-white border border-current/30 flex items-center justify-center opacity-60 hover:opacity-100 transition cursor-pointer"
+                      >
+                        <X className="w-3.5 h-3.5 stroke-[3]" />
+                      </button>
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
           </div>
         </div>
       </div>
@@ -1357,43 +1944,43 @@ export default function DailyScheduler({
               key={block}
               onDragOver={e => handleDragOverBlock(e, block)}
               onDrop={e => handleDropOnBlock(e, block)}
-              className={`bg-white border rounded-3xl overflow-hidden transition-all ${
+              className={`bg-white border rounded-2xl overflow-hidden transition-all ${
                 isDragTarget
-                  ? 'border-black ring-2 ring-black/20 shadow-lg'
+                  ? 'border-black ring-2 ring-black/20 shadow-md'
                   : isCurrent
-                  ? 'border-black ring-1 ring-black/10 shadow-sm'
+                  ? 'border-black ring-1 ring-black/10 shadow-2xs'
                   : isAllDone
-                  ? 'border-neutral-300 bg-neutral-50/40'
-                  : 'border-neutral-200 hover:border-neutral-300 shadow-xs'
+                  ? 'border-neutral-200 bg-neutral-50/40'
+                  : 'border-neutral-200 hover:border-neutral-300 shadow-2xs'
               }`}
             >
               {/* Section Header */}
               <div
                 onClick={() => toggleExpandBlock(block)}
-                className="p-4 flex items-center justify-between cursor-pointer hover:bg-neutral-50/80 transition select-none"
+                className="p-3.5 sm:p-4 flex items-center justify-between cursor-pointer hover:bg-neutral-50/80 transition select-none bg-white"
               >
                 <div className="flex items-center gap-3">
-                  <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 transition-colors ${
-                    isCurrent ? 'bg-black text-white ring-2 ring-neutral-300' : 'bg-white text-black border border-neutral-300'
+                  <div className={`w-8.5 h-8.5 rounded-xl flex items-center justify-center shrink-0 transition-colors ${
+                    isCurrent ? 'bg-black text-white' : 'bg-neutral-100 text-black border border-neutral-200'
                   }`}>
-                    <BlockIcon className="w-4.5 h-4.5 stroke-[2px]" />
+                    <BlockIcon className="w-4 h-4 stroke-[2px]" />
                   </div>
                   <div>
                     <div className="flex items-center gap-2">
-                      <h2 className="text-base font-black tracking-tight text-black">{meta.label}</h2>
+                      <h2 className="text-sm sm:text-base font-black tracking-tight text-black">{meta.label}</h2>
                       <span className="text-[10px] font-bold text-neutral-500 bg-neutral-100 px-2 py-0.5 rounded-full border border-neutral-200">
                         {meta.timeRange}
                       </span>
                     </div>
-                    <p className="text-xs text-neutral-400 font-medium">{meta.desc}</p>
+                    <p className="text-[11px] text-neutral-400 font-medium">{meta.desc}</p>
                   </div>
                 </div>
 
                 <div className="flex items-center gap-2 sm:gap-3">
-                  {/* Protein pill (today only) */}
-                  {selectedDate === dateToday && (() => {
-                    const todayFoods = schedulerLoggedFoods.filter(f => !f.date || f.date === dateToday);
-                    const blockP     = todayFoods.reduce((s, f) => f.mealType === block ? s + (f.protein || 0) : s, 0);
+                  {/* Protein pill — shows for all dates */}
+                  {(() => {
+                    const dateFoods = schedulerLoggedFoods.filter(f => f.date === selectedDate || (!f.date && selectedDate === dateToday));
+                    const blockP     = dateFoods.reduce((s, f) => f.mealType === block ? s + (f.protein || 0) : s, 0);
                     const blockGoal  = getBlockProteinGoal(block, activeNutritionTargets);
                     const pct        = Math.min(100, blockGoal > 0 ? Math.round((blockP / blockGoal) * 100) : 0);
                     return (
@@ -1474,13 +2061,14 @@ export default function DailyScheduler({
                   >
                     <div className="p-4 space-y-2.5">
 
-                      {/* Protein strip (today) */}
-                      {selectedDate === dateToday && (() => {
-                        const todayFoods = schedulerLoggedFoods.filter(f => !f.date || f.date === dateToday);
-                        const blockP     = todayFoods.reduce((s, f) => f.mealType === block ? s + (f.protein || 0) : s, 0);
+                      {/* Protein strip — all dates */}
+                      {(() => {
+                        const dateFoods = schedulerLoggedFoods.filter(f => f.date === selectedDate || (!f.date && selectedDate === dateToday));
+                        const blockP     = dateFoods.reduce((s, f) => f.mealType === block ? s + (f.protein || 0) : s, 0);
                         const blockGoal  = getBlockProteinGoal(block, activeNutritionTargets);
                         const pct        = Math.min(100, blockGoal > 0 ? Math.round((blockP / blockGoal) * 100) : 0);
                         const isEditing  = editingProteinGoal?.block === block;
+                        const isToday    = selectedDate === dateToday;
 
                         return (
                           <div className="rounded-xl border border-neutral-200 bg-white px-3 py-2 shadow-xs mb-1">
@@ -1492,7 +2080,7 @@ export default function DailyScheduler({
                                 <div className="flex items-center justify-between gap-2 mb-1.5">
                                   <div className="min-w-0">
                                     <div className="text-[10px] font-black uppercase tracking-wide text-black">Protein Goal</div>
-                                    <div className="text-[10px] font-bold text-neutral-500">{blockP}g logged in {meta.label}</div>
+                                    <div className="text-[10px] font-bold text-neutral-500">{blockP}g logged in {meta.label}{!isToday && <span className="ml-1 text-neutral-400">(past)</span>}</div>
                                   </div>
                                   {isEditing ? (
                                     <form onSubmit={e => { e.preventDefault(); handleSaveProteinGoal(); }} className="flex items-center gap-1.5 shrink-0">
@@ -1529,7 +2117,7 @@ export default function DailyScheduler({
                                   <span className="w-8 text-right text-[10px] font-black text-black">{pct}%</span>
                                 </div>
                               </div>
-                              {onOpenLogFoodForBlock && (
+                              {isToday && onOpenLogFoodForBlock && (
                                 <button
                                   type="button"
                                   onClick={() => onOpenLogFoodForBlock(block)}
@@ -2076,6 +2664,118 @@ export default function DailyScheduler({
             </div>
           );
         })}
+        </div>
+        </div>
+
+        {/* ── Right Column: Daily Notes Panel ──────────────────────── */}
+        <div id="weekly-planning-notes-section" className="lg:col-span-5 xl:col-span-4 sticky top-6 space-y-4">
+          <div className="bg-white border border-neutral-200 rounded-2xl overflow-hidden shadow-xs font-sans">
+
+            {/* Panel Header */}
+            <div className="flex items-center justify-between gap-2 px-4 py-3.5 border-b border-neutral-100">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-xl bg-black text-white flex items-center justify-center shrink-0">
+                  <FileText className="w-4 h-4" />
+                </div>
+                <div>
+                  <h2 className="text-sm font-black text-black tracking-tight">Daily Notes</h2>
+                  <p className="text-[10px] font-medium text-neutral-400">
+                    {new Date(selectedDate + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}
+                  </p>
+                </div>
+              </div>
+              {(dailyNotes[selectedDate] || '').trim().length > 0 && (
+                <span className="text-[10px] font-black bg-emerald-50 text-emerald-700 px-2.5 py-1 rounded-full border border-emerald-200 flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block" />
+                  Filled
+                </span>
+              )}
+            </div>
+
+            {/* Single unified daily note */}
+            {(() => {
+              const savedText = dailyNotes[selectedDate] ?? '';
+              const draftText = dailyNoteDraft ?? savedText;
+              const isDirty = draftText !== savedText;
+              const hasContent = savedText.trim().length > 0;
+              return (
+                <div className="px-4 py-4 space-y-3">
+                  {/* Helper tip */}
+                  <p className="text-[11px] font-medium text-neutral-400 leading-relaxed">
+                    Jot down anything important for today — goals, reminders, reflections, or focus points.
+                  </p>
+
+                  {/* Textarea */}
+                  <textarea
+                    rows={10}
+                    placeholder={`Write today's notes here...\n\n• Goals for today\n• Things to remember\n• Reflections\n• Ideas`}
+                    value={draftText}
+                    onChange={e => setDailyNoteDraft(e.target.value)}
+                    className="w-full bg-neutral-50 border border-neutral-200 focus:border-black focus:bg-white rounded-xl px-3.5 py-3 text-xs font-medium text-black placeholder:text-neutral-400 focus:outline-none transition resize-none leading-relaxed"
+                  />
+
+                  {/* Action Row */}
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={handleSaveDailyNote}
+                      disabled={!isDirty && !hasContent}
+                      className={`flex-1 h-9 rounded-xl text-[11px] font-black flex items-center justify-center gap-1.5 transition cursor-pointer disabled:opacity-40 disabled:cursor-default active:scale-95 ${
+                        isDirty ? 'bg-black hover:bg-neutral-800 text-white shadow-xs' : 'bg-neutral-100 text-neutral-500 hover:bg-neutral-200'
+                      }`}
+                    >
+                      <Check className="w-3.5 h-3.5 stroke-[3]" />
+                      {isDirty ? 'Save Note' : 'Saved'}
+                    </button>
+                    {hasContent && (
+                      <button
+                        type="button"
+                        onClick={handleClearDailyNote}
+                        className="h-9 w-9 rounded-xl border border-neutral-200 text-neutral-400 hover:text-rose-600 hover:border-rose-200 flex items-center justify-center transition cursor-pointer"
+                        title="Clear note"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Past notes quick-look: show last 3 days with content */}
+                  {(() => {
+                    const recentFilled = Array.from({ length: 7 }, (_, i) => {
+                      const d = new Date(selectedDate + 'T00:00:00');
+                      d.setDate(d.getDate() - (i + 1));
+                      const ds = formatDateString(d);
+                      return { ds, text: dailyNotes[ds] ?? '' };
+                    }).filter(x => x.text.trim().length > 0).slice(0, 3);
+
+                    if (recentFilled.length === 0) return null;
+                    return (
+                      <div className="pt-3 border-t border-neutral-100 space-y-2">
+                        <span className="text-[10px] font-black uppercase tracking-wider text-neutral-400">Recent Days</span>
+                        {recentFilled.map(({ ds, text }) => {
+                          const d = new Date(ds + 'T00:00:00');
+                          const label = d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+                          return (
+                            <button
+                              key={ds}
+                              type="button"
+                              onClick={() => setSelectedDate(ds)}
+                              className="w-full text-left px-3 py-2.5 rounded-xl border border-neutral-200 bg-neutral-50 hover:border-black hover:bg-white transition cursor-pointer space-y-0.5"
+                            >
+                              <div className="text-[10px] font-black text-neutral-500 uppercase tracking-wider">{label}</div>
+                              <div className="text-xs font-medium text-black line-clamp-2 leading-relaxed">{text}</div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    );
+                  })()}
+                </div>
+              );
+            })()}
+
+          </div>
+        </div>
       </div>
     </div>
   );
