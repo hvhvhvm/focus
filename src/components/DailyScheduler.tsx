@@ -93,10 +93,20 @@ export interface TaskGroupTemplate {
   createdAt: string;
 }
 
+/** Reusable standard task template — single task with metadata */
+export interface StandardTaskTemplate {
+  id: string;
+  name: string;
+  defaultTimeBlock: TimeBlock;
+  defaultScheduledTime?: string;
+  createdAt: string;
+}
+
 // ─── Constants ─────────────────────────────────────────────────────────────
 
 const STORAGE_KEY = 'focus_now_daily_scheduler_tasks_v10';
 const TASK_GROUP_TEMPLATES_KEY = 'focus_now_task_group_templates_v1';
+const STANDARD_TASK_TEMPLATES_KEY = 'focus_now_standard_task_templates_v1';
 const LOCAL_NUTRITION_TARGETS_KEY = 'focus_now_scheduler_protein_targets_v1';
 const APP_NUTRITION_TARGETS_KEY = '90day_nutrition_targets';
 const APP_LOGGED_FOODS_KEY = '90day_logged_foods';
@@ -442,6 +452,27 @@ export default function DailyScheduler({
     defaultScheduledTime: '',
   });
 
+  // ── Saved standard task templates ─────────────────────────────────────────
+  const [standardTaskTemplates, setStandardTaskTemplates] = useState<StandardTaskTemplate[]>(() => {
+    try {
+      const saved = localStorage.getItem(STANDARD_TASK_TEMPLATES_KEY);
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    return [];
+  });
+  const [showStandardTaskTemplatesModal, setShowStandardTaskTemplatesModal] = useState(false);
+  const [savedStandardTaskPickerBlock, setSavedStandardTaskPickerBlock] = useState<TimeBlock | null>(null);
+  const [editingStandardTaskTemplate, setEditingStandardTaskTemplate] = useState<StandardTaskTemplate | null>(null);
+  const [standardTaskTemplateDraft, setStandardTaskTemplateDraft] = useState<{
+    name: string;
+    defaultTimeBlock: TimeBlock;
+    defaultScheduledTime: string;
+  }>({
+    name: '',
+    defaultTimeBlock: 'Morning',
+    defaultScheduledTime: '',
+  });
+
   // ── Weekly Planning Notes State ───────────────────────────────────────────
   const [planningNotes, setPlanningNotes] = useState<PlanningNote[]>(() => {
     try {
@@ -541,6 +572,13 @@ export default function DailyScheduler({
       localStorage.setItem(TASK_GROUP_TEMPLATES_KEY, JSON.stringify(groupTemplates));
     } catch {}
   }, [groupTemplates]);
+
+  // Persist saved standard task templates
+  useEffect(() => {
+    try {
+      localStorage.setItem(STANDARD_TASK_TEMPLATES_KEY, JSON.stringify(standardTaskTemplates));
+    } catch {}
+  }, [standardTaskTemplates]);
 
   // Sync planning notes completion & deletion with main tasks
   useEffect(() => {
@@ -1353,8 +1391,103 @@ export default function DailyScheduler({
 
   const handleDeleteGroupTemplate = (templateId: string) => {
     setGroupTemplates(prev => prev.filter(t => t.id !== templateId));
-    if (editingGroupTemplate?.id === templateId) resetGroupTemplateDraft();
-    showToast('Saved group removed');
+    showToast('Template deleted');
+  };
+
+  // ── Standard Task Template Handlers ───────────────────────────────────────
+  const saveStandardTaskAsTemplate = (task: SchedulerTask) => {
+    if (task.type !== 'standard') {
+      showToast('Only standard tasks can be saved as templates');
+      return;
+    }
+
+    const template: StandardTaskTemplate = {
+      id: 'std_tpl_' + Math.random().toString(36).substring(2, 9),
+      name: task.title.trim() || 'Untitled Task',
+      defaultTimeBlock: task.timeBlock,
+      defaultScheduledTime: task.scheduledTime,
+      createdAt: new Date().toISOString(),
+    };
+
+    setStandardTaskTemplates(prev => [...prev, template]);
+    showToast(`Saved "${template.name}" for reuse`);
+  };
+
+  const insertStandardTaskFromTemplate = (template: StandardTaskTemplate, block: TimeBlock) => {
+    const newTask: SchedulerTask = {
+      id: 'task_' + Math.random().toString(36).substring(2, 9),
+      date: selectedDate,
+      timeBlock: block,
+      title: template.name.trim() || 'Task',
+      scheduledTime: template.defaultScheduledTime?.trim() || undefined,
+      completed: false,
+      type: 'standard',
+      createdAt: new Date().toISOString(),
+    };
+
+    setTasks(prev => [...prev, newTask]);
+    setExpandedBlocks(prev => ({ ...prev, [block]: true }));
+    setSavedStandardTaskPickerBlock(null);
+    setShowStandardTaskTemplatesModal(false);
+    showToast(`Added "${newTask.title}" to ${block}`);
+  };
+
+  const handleDeleteStandardTaskTemplate = (templateId: string) => {
+    setStandardTaskTemplates(prev => prev.filter(t => t.id !== templateId));
+    showToast('Standard task template deleted');
+  };
+
+  const resetStandardTaskTemplateDraft = (block: TimeBlock = 'Morning') => {
+    setStandardTaskTemplateDraft({
+      name: '',
+      defaultTimeBlock: block,
+      defaultScheduledTime: '',
+    });
+    setEditingStandardTaskTemplate(null);
+  };
+
+  const handleEditStandardTaskTemplate = (template: StandardTaskTemplate) => {
+    setEditingStandardTaskTemplate(template);
+    setStandardTaskTemplateDraft({
+      name: template.name,
+      defaultTimeBlock: template.defaultTimeBlock,
+      defaultScheduledTime: template.defaultScheduledTime ?? '',
+    });
+  };
+
+  const handleSaveStandardTaskTemplateDraft = () => {
+    if (!standardTaskTemplateDraft.name.trim()) {
+      showToast('Task name is required');
+      return;
+    }
+
+    if (editingStandardTaskTemplate) {
+      setStandardTaskTemplates(prev =>
+        prev.map(t =>
+          t.id === editingStandardTaskTemplate.id
+            ? {
+                ...t,
+                name: standardTaskTemplateDraft.name.trim(),
+                defaultTimeBlock: standardTaskTemplateDraft.defaultTimeBlock,
+                defaultScheduledTime: standardTaskTemplateDraft.defaultScheduledTime.trim() || undefined,
+              }
+            : t
+        )
+      );
+      showToast('Standard task template updated');
+    } else {
+      const newTemplate: StandardTaskTemplate = {
+        id: 'std_tpl_' + Math.random().toString(36).substring(2, 9),
+        name: standardTaskTemplateDraft.name.trim(),
+        defaultTimeBlock: standardTaskTemplateDraft.defaultTimeBlock,
+        defaultScheduledTime: standardTaskTemplateDraft.defaultScheduledTime.trim() || undefined,
+        createdAt: new Date().toISOString(),
+      };
+      setStandardTaskTemplates(prev => [...prev, newTemplate]);
+      showToast(`Saved "${newTemplate.name}"`);
+    }
+
+    resetStandardTaskTemplateDraft(standardTaskTemplateDraft.defaultTimeBlock);
   };
 
   // ── Drag-and-Drop Handlers ────────────────────────────────────────────────
@@ -1896,6 +2029,179 @@ export default function DailyScheduler({
         )}
       </AnimatePresence>
 
+      {/* ── Saved Standard Task Templates Modal ───────────────────────────── */}
+      <AnimatePresence>
+        {showStandardTaskTemplatesModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/40 backdrop-blur-[2px]"
+            onClick={() => setShowStandardTaskTemplatesModal(false)}
+          >
+            <motion.div
+              initial={{ opacity: 0, y: 24, scale: 0.98 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 24, scale: 0.98 }}
+              onClick={e => e.stopPropagation()}
+              className="w-full sm:max-w-lg max-h-[88vh] overflow-hidden bg-white rounded-t-3xl sm:rounded-2xl border border-neutral-200 shadow-2xl flex flex-col"
+            >
+              <div className="flex items-center justify-between gap-3 px-4 sm:px-5 py-4 border-b border-neutral-100">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <div className="w-9 h-9 rounded-xl bg-black text-white flex items-center justify-center shrink-0">
+                    <Star className="w-4 h-4" />
+                  </div>
+                  <div className="min-w-0">
+                    <h2 className="text-sm font-black text-black tracking-tight">Saved Standard Tasks</h2>
+                    <p className="text-[10px] font-medium text-neutral-400 truncate">
+                      Quick-add your recurring tasks
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowStandardTaskTemplatesModal(false)}
+                  className="w-8 h-8 rounded-xl text-neutral-400 hover:text-black hover:bg-neutral-100 flex items-center justify-center transition cursor-pointer shrink-0"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div className="overflow-y-auto flex-1 px-4 sm:px-5 py-4 space-y-4">
+                {/* Create / edit form */}
+                <div className="bg-neutral-50 border border-neutral-200 rounded-2xl p-3.5 space-y-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-[11px] font-extrabold text-neutral-600 uppercase tracking-wider">
+                      {editingStandardTaskTemplate ? 'Edit Saved Task' : 'New Saved Task'}
+                    </span>
+                    {editingStandardTaskTemplate && (
+                      <button
+                        type="button"
+                        onClick={() => resetStandardTaskTemplateDraft(standardTaskTemplateDraft.defaultTimeBlock)}
+                        className="text-[10px] font-bold text-neutral-500 hover:text-black cursor-pointer"
+                      >
+                        Cancel edit
+                      </button>
+                    )}
+                  </div>
+                  <input
+                    type="text"
+                    placeholder="Task name (e.g. Meditate)"
+                    value={standardTaskTemplateDraft.name}
+                    onChange={e => setStandardTaskTemplateDraft(prev => ({ ...prev, name: e.target.value }))}
+                    className="w-full bg-white border border-neutral-300 rounded-xl px-3 py-2 text-xs font-bold text-black placeholder:text-neutral-400 focus:outline-none focus:border-black"
+                  />
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-[10px] font-bold text-neutral-400 uppercase tracking-wider">Default block:</span>
+                    {(['Morning', 'Afternoon', 'Evening', 'Night'] as TimeBlock[]).map(block => (
+                      <button
+                        key={block}
+                        type="button"
+                        onClick={() => setStandardTaskTemplateDraft(prev => ({ ...prev, defaultTimeBlock: block }))}
+                        className={`text-[10px] font-bold px-2 py-0.5 rounded-lg border transition cursor-pointer ${
+                          standardTaskTemplateDraft.defaultTimeBlock === block
+                            ? 'bg-black text-white border-black'
+                            : 'bg-white text-neutral-700 border-neutral-200 hover:border-black'
+                        }`}
+                      >
+                        {block}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] font-bold text-neutral-400 uppercase tracking-wider shrink-0">Time (optional):</span>
+                    <input
+                      type="text"
+                      placeholder="e.g. 08:30 AM"
+                      value={standardTaskTemplateDraft.defaultScheduledTime}
+                      onChange={e => setStandardTaskTemplateDraft(prev => ({ ...prev, defaultScheduledTime: e.target.value }))}
+                      className="bg-white border border-neutral-300 rounded-lg px-2 py-1 text-[11px] font-bold text-black focus:outline-none focus:border-black w-24"
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleSaveStandardTaskTemplateDraft}
+                    className="w-full h-9 bg-black hover:bg-neutral-800 text-white text-xs font-black rounded-xl transition cursor-pointer active:scale-[0.98]"
+                  >
+                    {editingStandardTaskTemplate ? 'Update Saved Task' : 'Save Task Template'}
+                  </button>
+                </div>
+
+                {/* Saved list */}
+                <div className="space-y-2">
+                  <span className="text-[11px] font-extrabold text-neutral-600 uppercase tracking-wider block">
+                    Your Tasks ({standardTaskTemplates.length})
+                  </span>
+                  {standardTaskTemplates.length === 0 ? (
+                    <p className="text-xs text-neutral-400 font-medium py-4 text-center border border-dashed border-neutral-200 rounded-2xl">
+                      No saved standard tasks yet. Create one above or save from an existing task.
+                    </p>
+                  ) : (
+                    standardTaskTemplates.map(template => (
+                      <div
+                        key={template.id}
+                        className="bg-white border border-neutral-200 rounded-2xl p-3 space-y-2.5 hover:border-neutral-300 transition"
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <p className="text-sm font-black text-black truncate">{template.name}</p>
+                            <p className="text-[10px] font-medium text-neutral-500 mt-0.5">
+                              Default {template.defaultTimeBlock}
+                              {template.defaultScheduledTime ? ` · ${template.defaultScheduledTime}` : ''}
+                            </p>
+                          </div>
+                          <div className="flex items-center gap-1 shrink-0">
+                            <button
+                              type="button"
+                              onClick={() => handleEditStandardTaskTemplate(template)}
+                              className="w-7 h-7 rounded-lg text-neutral-400 hover:text-black hover:bg-neutral-100 flex items-center justify-center cursor-pointer"
+                              title="Edit"
+                            >
+                              <Pencil className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteStandardTaskTemplate(template.id)}
+                              className="w-7 h-7 rounded-lg text-neutral-300 hover:text-red-500 hover:bg-red-50 flex items-center justify-center cursor-pointer"
+                              title="Delete"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </div>
+                        <div className="flex flex-wrap gap-1.5 pt-1 border-t border-neutral-100">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              insertStandardTaskFromTemplate(template, template.defaultTimeBlock)
+                            }
+                            className="flex-1 min-w-[120px] h-8 bg-black hover:bg-neutral-800 text-white text-[10px] font-black rounded-xl transition cursor-pointer active:scale-[0.98]"
+                          >
+                            Add to {template.defaultTimeBlock}
+                          </button>
+                          {(['Morning', 'Afternoon', 'Evening', 'Night'] as TimeBlock[])
+                            .filter(b => b !== template.defaultTimeBlock)
+                            .map(block => (
+                              <button
+                                key={block}
+                                type="button"
+                                onClick={() => insertStandardTaskFromTemplate(template, block)}
+                                className="text-[10px] font-bold px-2.5 py-1 rounded-lg border border-neutral-200 bg-white text-neutral-700 hover:border-black transition cursor-pointer"
+                              >
+                                {block}
+                              </button>
+                            ))}
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* ── Grid Container ─────────────────────────────────────────────────── */}
       <div className="lg:grid lg:grid-cols-12 lg:gap-6 items-start space-y-6 lg:space-y-0">
         {/* ── Left Column: Scheduler & Trackers ────────────────────────────── */}
@@ -1949,6 +2255,18 @@ export default function DailyScheduler({
             >
               <ListTree className="w-3.5 h-3.5 text-neutral-500" />
               <span>Saved Groups{groupTemplates.length > 0 ? ` (${groupTemplates.length})` : ''}</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                resetStandardTaskTemplateDraft();
+                setShowStandardTaskTemplatesModal(true);
+              }}
+              title="Manage saved standard tasks"
+              className="h-9 flex items-center gap-2 px-3 bg-white hover:bg-neutral-50 text-black border border-neutral-200 text-xs font-bold rounded-xl transition shadow-xs active:scale-95 cursor-pointer"
+            >
+              <Star className="w-3.5 h-3.5 text-amber-500 fill-amber-500/20" />
+              <span>Saved Tasks{standardTaskTemplates.length > 0 ? ` (${standardTaskTemplates.length})` : ''}</span>
             </button>
             <button
               type="button"
@@ -2427,17 +2745,73 @@ export default function DailyScheduler({
                     </span>
                   )}
 
-                  {/* Food log button */}
-                  {selectedDate === dateToday && onOpenLogFoodForBlock && (
+                  {/* Insert saved standard task */}
+                  <div className="relative">
                     <button
                       type="button"
-                      onClick={e => { e.stopPropagation(); onOpenLogFoodForBlock(block); }}
-                      title={`Log food to ${meta.label}`}
-                      className="w-8 h-8 rounded-xl bg-white text-black border border-neutral-300 flex items-center justify-center hover:border-black active:scale-95 transition cursor-pointer"
+                      onClick={e => {
+                        e.stopPropagation();
+                        if (!isExpanded) setExpandedBlocks(prev => ({ ...prev, [block]: true }));
+                        if (standardTaskTemplates.length === 0) {
+                          resetStandardTaskTemplateDraft(block);
+                          setShowStandardTaskTemplatesModal(true);
+                          return;
+                        }
+                        setSavedStandardTaskPickerBlock(prev => (prev === block ? null : block));
+                        setSavedGroupPickerBlock(null);
+                      }}
+                      title="Add saved task to this block"
+                      className="w-8 h-8 rounded-xl bg-white text-amber-500 border border-neutral-300 flex items-center justify-center hover:border-black active:scale-95 transition cursor-pointer"
                     >
-                      <Plus className="w-4 h-4 stroke-[3px]" />
+                      <Star className="w-4 h-4 fill-amber-400 stroke-[2px]" />
                     </button>
-                  )}
+                    {savedStandardTaskPickerBlock === block && standardTaskTemplates.length > 0 && (
+                      <div
+                        className="absolute right-0 top-full mt-1.5 z-30 w-56 max-h-64 overflow-y-auto bg-white border border-neutral-200 rounded-xl shadow-xl py-1"
+                        onClick={e => e.stopPropagation()}
+                      >
+                        <p className="px-3 py-1.5 text-[9px] font-black text-neutral-400 uppercase tracking-wider border-b border-neutral-100">
+                          Add to {meta.label}
+                        </p>
+                        {(() => {
+                          const blockTemplates = standardTaskTemplates.filter(t => t.defaultTimeBlock === block);
+                          if (blockTemplates.length === 0) {
+                            return (
+                              <p className="px-3 py-3 text-xs text-neutral-400 font-medium text-center">
+                                No saved tasks for {block}.
+                              </p>
+                            );
+                          }
+                          return blockTemplates.map(template => (
+                            <button
+                              key={template.id}
+                              type="button"
+                              onClick={() => insertStandardTaskFromTemplate(template, block)}
+                              className="w-full text-left px-3 py-2 hover:bg-neutral-50 transition cursor-pointer"
+                            >
+                              <p className="text-xs font-black text-black truncate">{template.name}</p>
+                              {template.defaultScheduledTime && (
+                                <p className="text-[10px] text-neutral-500 font-medium">
+                                  Time: {template.defaultScheduledTime}
+                                </p>
+                              )}
+                            </button>
+                          ));
+                        })()}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSavedStandardTaskPickerBlock(null);
+                            resetStandardTaskTemplateDraft(block);
+                            setShowStandardTaskTemplatesModal(true);
+                          }}
+                          className="w-full text-left px-3 py-2 text-[10px] font-bold text-black border-t border-neutral-100 hover:bg-neutral-50 cursor-pointer"
+                        >
+                          + Manage saved tasks
+                        </button>
+                      </div>
+                    )}
+                  </div>
 
                   {/* Insert saved group */}
                   <div className="relative">
@@ -2451,6 +2825,7 @@ export default function DailyScheduler({
                           return;
                         }
                         setSavedGroupPickerBlock(prev => (prev === block ? null : block));
+                        setSavedStandardTaskPickerBlock(null);
                       }}
                       title={groupTemplates.length > 0 ? 'Add saved group to this block' : 'Create a saved group'}
                       className="w-8 h-8 rounded-xl bg-white text-black border border-neutral-300 flex items-center justify-center hover:border-black active:scale-95 transition cursor-pointer"
@@ -3025,6 +3400,17 @@ export default function DailyScheduler({
                                         onClick={() => saveGroupAsTemplate(task)}
                                         className="text-neutral-300 hover:text-amber-600 p-1 sm:p-0.5 hover:bg-amber-50 rounded transition cursor-pointer touch-manipulation"
                                         title="Save as reusable group"
+                                      >
+                                        <Star className="w-3.5 h-3.5" />
+                                      </button>
+                                    )}
+
+                                    {task.type === 'standard' && (
+                                      <button
+                                        type="button"
+                                        onClick={() => saveStandardTaskAsTemplate(task)}
+                                        className="text-neutral-300 hover:text-amber-600 p-1 sm:p-0.5 hover:bg-amber-50 rounded transition cursor-pointer touch-manipulation"
+                                        title="Save as reusable task"
                                       >
                                         <Star className="w-3.5 h-3.5" />
                                       </button>
