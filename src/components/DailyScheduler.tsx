@@ -689,106 +689,7 @@ export default function DailyScheduler({
     });
   }, [selectedDate]);
 
-  // Schedule daily time-block reminders + motivational quotes + Day Briefing via SW
-  useEffect(() => {
-    if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
-    if (!swReady) return;
 
-    const now = new Date();
-    const batch: object[] = [];
-
-    // ── Day Briefing (6 AM) — includes 90-day mission day ─────────────────
-    (() => {
-      const briefingFire = new Date();
-      briefingFire.setHours(DAY_BRIEFING_HOUR, DAY_BRIEFING_MIN, 0, 0);
-      const msUntil = briefingFire.getTime() - now.getTime();
-      if (msUntil > 0) {
-        // ── Calculate current 90-day mission day ──
-        let missionDay = 1;
-        const journeyStart = currentUser?.journey_start_date
-          ? new Date(currentUser.journey_start_date)
-          : null;
-        if (journeyStart) {
-          const diffDays = Math.floor((now.getTime() - journeyStart.getTime()) / (1000 * 60 * 60 * 24)) + 1;
-          missionDay = Math.max(1, Math.min(90, diffDays));
-        }
-        const daysLeft = 90 - missionDay;
-
-        // ── Phase-aware motivational opener ──
-        const phaseMsg =
-          missionDay <= 7   ? `First week warrior! Every habit you build now is compounding. Don't stop.` :
-          missionDay <= 14  ? `Two weeks in — the identity shift is happening. Keep showing up!` :
-          missionDay <= 30  ? `One month locked in. You're proving something to yourself every single day.` :
-          missionDay <= 60  ? `Halfway warrior. Most people quit here. You're not most people.` :
-          missionDay <= 80  ? `The final stretch. ${daysLeft} days left. This is where legends are made.` :
-                              `FINAL 10 DAYS. You came this far — finish it. No surrender. 🏆`;
-
-        // ── Task breakdown ──
-        let morningCount = 0, afternoonCount = 0, eveningCount = 0, nightCount = 0, total = 0;
-        try {
-          const raw = localStorage.getItem(STORAGE_KEY);
-          if (raw) {
-            const allTasks: SchedulerTask[] = JSON.parse(raw);
-            const todayTasks = allTasks.filter(t => !t.isRecurrenceTemplate && t.date === dateToday);
-            total = todayTasks.length;
-            morningCount   = todayTasks.filter(t => t.timeBlock === 'Morning').length;
-            afternoonCount = todayTasks.filter(t => t.timeBlock === 'Afternoon').length;
-            eveningCount   = todayTasks.filter(t => t.timeBlock === 'Evening').length;
-            nightCount     = todayTasks.filter(t => t.timeBlock === 'Night').length;
-          }
-        } catch {}
-
-        const blockLines: string[] = [];
-        if (morningCount   > 0) blockLines.push(`🌅 Morning ×${morningCount}`);
-        if (afternoonCount > 0) blockLines.push(`🔥 Afternoon ×${afternoonCount}`);
-        if (eveningCount   > 0) blockLines.push(`💪 Evening ×${eveningCount}`);
-        if (nightCount     > 0) blockLines.push(`🌙 Night ×${nightCount}`);
-
-        const taskLine = total > 0
-          ? `${blockLines.join('  ')} — ${total} tasks today.`
-          : 'No tasks scheduled yet — plan your blocks for max output! 📅';
-
-        batch.push({
-          id: 'day-briefing',
-          title: `🏆 Day ${missionDay} of 90 — ${now.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}`,
-          body: `${phaseMsg}\n\n${taskLine}`,
-          msUntil,
-          requireInteraction: true,
-        });
-      }
-    })();
-
-    // ── Time-block reminders ───────────────────────────────────────────────
-    TIME_BLOCK_NOTIFS.forEach(n => {
-      const fireAt = new Date();
-      fireAt.setHours(n.hour, n.min, 0, 0);
-      const msUntil = fireAt.getTime() - now.getTime();
-      if (msUntil <= 0) return;
-      batch.push({
-        id: `block-${n.block}`,
-        title: n.title,
-        body: n.body,
-        msUntil,
-        requireInteraction: true,
-      });
-    });
-
-    // ── Motivational quote blasts ───────────────────────────────────────────
-    DAILY_MOTIVATIONAL_SCHEDULE.forEach((n, i) => {
-      const fireAt = new Date();
-      fireAt.setHours(n.hour, n.min, 0, 0);
-      const msUntil = fireAt.getTime() - now.getTime();
-      if (msUntil <= 0) return;
-      batch.push({
-        id: `motivational-${i}`,
-        title: n.title,
-        body: MOTIVATIONAL_MESSAGES[Math.floor(Math.random() * MOTIVATIONAL_MESSAGES.length)],
-        msUntil,
-      });
-    });
-
-    if (batch.length > 0) postToSW({ type: 'SCHEDULE_BATCH', payload: batch });
-  }, [notifPermission, swReady, postToSW]);
 
   // Schedule task-specific reminders (prefer SW; fall back to setTimeout)
   useEffect(() => {
@@ -854,6 +755,129 @@ export default function DailyScheduler({
   const proteinCompletionPercentage = useMemo(() => {
     return totalProteinGoal > 0 ? Math.min(100, Math.round((totalProteinConsumed / totalProteinGoal) * 100)) : 0;
   }, [totalProteinConsumed, totalProteinGoal]);
+
+  // Schedule daily time-block reminders + motivational quotes + Day Briefing via SW
+  useEffect(() => {
+    if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
+    if (!swReady) return;
+
+    const now = new Date();
+    const batch: object[] = [];
+
+    // ── Day Briefing (6 AM) — includes 90-day mission day ─────────────────
+    (() => {
+      const briefingFire = new Date();
+      briefingFire.setHours(DAY_BRIEFING_HOUR, DAY_BRIEFING_MIN, 0, 0);
+      const msUntil = briefingFire.getTime() - now.getTime();
+      if (msUntil > 0) {
+        // ── Calculate current 90-day mission day ──
+        let missionDay = 1;
+        const journeyStart = currentUser?.journey_start_date
+          ? new Date(currentUser.journey_start_date)
+          : null;
+        if (journeyStart) {
+          const diffDays = Math.floor((now.getTime() - journeyStart.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+          missionDay = Math.max(1, Math.min(90, diffDays));
+        }
+        const daysLeft = 90 - missionDay;
+
+        // ── Phase-aware motivational opener ──
+        const phaseMsg =
+          missionDay <= 7   ? `First week warrior! Every habit you build now is compounding. Don't stop.` :
+          missionDay <= 14  ? `Two weeks in — the identity shift is happening. Keep showing up!` :
+          missionDay <= 30  ? `One month locked in. You're proving something to yourself every single day.` :
+          missionDay <= 60  ? `Halfway warrior. Most people quit here. You're not most people.` :
+          missionDay <= 80  ? `The final stretch. ${daysLeft} days left. This is where legends are made.` :
+                              `FINAL 10 DAYS. You came this far — finish it. No surrender. 🏆`;
+
+        // ── Task breakdown ──
+        const todayTasks = tasks.filter(t => !t.isRecurrenceTemplate && t.date === dateToday);
+        const total = todayTasks.length;
+        const morningCount   = todayTasks.filter(t => t.timeBlock === 'Morning').length;
+        const afternoonCount = todayTasks.filter(t => t.timeBlock === 'Afternoon').length;
+        const eveningCount   = todayTasks.filter(t => t.timeBlock === 'Evening').length;
+        const nightCount     = todayTasks.filter(t => t.timeBlock === 'Night').length;
+
+        const blockLines: string[] = [];
+        if (morningCount   > 0) blockLines.push(`🌅 Morning ×${morningCount}`);
+        if (afternoonCount > 0) blockLines.push(`🔥 Afternoon ×${afternoonCount}`);
+        if (eveningCount   > 0) blockLines.push(`💪 Evening ×${eveningCount}`);
+        if (nightCount     > 0) blockLines.push(`🌙 Night ×${nightCount}`);
+
+        const taskLine = total > 0
+          ? `${blockLines.join('  ')} — ${total} tasks today.`
+          : 'No tasks scheduled yet — plan your blocks for max output! 📅';
+
+        // ── Daily Protein Goal brief ──
+        const todayFoods = schedulerLoggedFoods.filter(f => f.date === dateToday || (!f.date));
+        const totalP = todayFoods.reduce((sum, f) => sum + (f.protein || 0), 0);
+        const totalPGoal = ['Morning', 'Afternoon', 'Evening', 'Night'].reduce(
+          (sum, b) => sum + getBlockProteinGoal(b as TimeBlock, activeNutritionTargets),
+          0
+        );
+        const proteinBrief = totalPGoal > 0
+          ? `Daily Protein: ${totalP}g / ${totalPGoal}g.`
+          : '';
+
+        batch.push({
+          id: 'day-briefing',
+          title: `🏆 Day ${missionDay} of 90 — ${now.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}`,
+          body: `${phaseMsg}\n\n${taskLine}${proteinBrief ? `\n\n🍗 ${proteinBrief}` : ''}`,
+          msUntil,
+          requireInteraction: true,
+        });
+      }
+    })();
+
+    // ── Time-block reminders ───────────────────────────────────────────────
+    TIME_BLOCK_NOTIFS.forEach(n => {
+      const fireAt = new Date();
+      fireAt.setHours(n.hour, n.min, 0, 0);
+      const msUntil = fireAt.getTime() - now.getTime();
+      if (msUntil <= 0) return;
+
+      // Calculate dynamic stats for this block
+      const todayFoods = schedulerLoggedFoods.filter(f => f.date === dateToday || (!f.date));
+      const blockP = todayFoods.reduce((s, f) => f.mealType === n.block ? s + (f.protein || 0) : s, 0);
+      const blockGoal = getBlockProteinGoal(n.block, activeNutritionTargets);
+
+      const blockTasks = tasks.filter(t => !t.isRecurrenceTemplate && t.date === dateToday && t.timeBlock === n.block);
+      const pendingTasksCount = blockTasks.filter(t => !t.completed).length;
+
+      const proteinStatus = blockGoal > 0
+        ? `Protein: ${blockP}g/${blockGoal}g logged.`
+        : '';
+      const taskStatus = blockTasks.length > 0
+        ? `${pendingTasksCount}/${blockTasks.length} tasks remaining.`
+        : 'No tasks scheduled.';
+
+      const dynamicBody = `${n.body}\n\n📊 Status: ${taskStatus}${proteinStatus ? `\n🍗 ${proteinStatus}` : ''}`;
+
+      batch.push({
+        id: `block-${n.block}`,
+        title: n.title,
+        body: dynamicBody,
+        msUntil,
+        requireInteraction: true,
+      });
+    });
+
+    // ── Motivational quote blasts ───────────────────────────────────────────
+    DAILY_MOTIVATIONAL_SCHEDULE.forEach((n, i) => {
+      const fireAt = new Date();
+      fireAt.setHours(n.hour, n.min, 0, 0);
+      const msUntil = fireAt.getTime() - now.getTime();
+      if (msUntil <= 0) return;
+      batch.push({
+        id: `motivational-${i}`,
+        title: n.title,
+        body: MOTIVATIONAL_MESSAGES[Math.floor(Math.random() * MOTIVATIONAL_MESSAGES.length)],
+        msUntil,
+      });
+    });
+
+    if (batch.length > 0) postToSW({ type: 'SCHEDULE_BATCH', payload: batch });
+  }, [notifPermission, swReady, postToSW, tasks, schedulerLoggedFoods, activeNutritionTargets]);
 
   const currentSleepLog = sleepLogs[selectedDate];
   const sleepCompletionPercentage = useMemo(() => {
