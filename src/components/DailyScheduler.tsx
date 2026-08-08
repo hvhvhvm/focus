@@ -83,9 +83,20 @@ export interface PlanningNote {
   createdAt: string;
 }
 
+/** Reusable named group template — subtasks only, no completion state */
+export interface TaskGroupTemplate {
+  id: string;
+  name: string;
+  subtaskTitles: string[];
+  defaultTimeBlock?: TimeBlock;
+  defaultScheduledTime?: string;
+  createdAt: string;
+}
+
 // ─── Constants ─────────────────────────────────────────────────────────────
 
 const STORAGE_KEY = 'focus_now_daily_scheduler_tasks_v10';
+const TASK_GROUP_TEMPLATES_KEY = 'focus_now_task_group_templates_v1';
 const LOCAL_NUTRITION_TARGETS_KEY = 'focus_now_scheduler_protein_targets_v1';
 const APP_NUTRITION_TARGETS_KEY = '90day_nutrition_targets';
 const APP_LOGGED_FOODS_KEY = '90day_logged_foods';
@@ -408,6 +419,29 @@ export default function DailyScheduler({
   const [editSleepGoal, setEditSleepGoal] = useState('8');
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
+  // ── Saved task group templates ────────────────────────────────────────────
+  const [groupTemplates, setGroupTemplates] = useState<TaskGroupTemplate[]>(() => {
+    try {
+      const saved = localStorage.getItem(TASK_GROUP_TEMPLATES_KEY);
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    return [];
+  });
+  const [showGroupTemplatesModal, setShowGroupTemplatesModal] = useState(false);
+  const [savedGroupPickerBlock, setSavedGroupPickerBlock] = useState<TimeBlock | null>(null);
+  const [editingGroupTemplate, setEditingGroupTemplate] = useState<TaskGroupTemplate | null>(null);
+  const [groupTemplateDraft, setGroupTemplateDraft] = useState<{
+    name: string;
+    subtaskTitles: string[];
+    defaultTimeBlock: TimeBlock;
+    defaultScheduledTime: string;
+  }>({
+    name: '',
+    subtaskTitles: [''],
+    defaultTimeBlock: 'Morning',
+    defaultScheduledTime: '',
+  });
+
   // ── Weekly Planning Notes State ───────────────────────────────────────────
   const [planningNotes, setPlanningNotes] = useState<PlanningNote[]>(() => {
     try {
@@ -500,6 +534,13 @@ export default function DailyScheduler({
       localStorage.setItem('focus_now_weekly_planning_notes_v1', JSON.stringify(planningNotes));
     } catch {}
   }, [planningNotes]);
+
+  // Persist saved group templates
+  useEffect(() => {
+    try {
+      localStorage.setItem(TASK_GROUP_TEMPLATES_KEY, JSON.stringify(groupTemplates));
+    } catch {}
+  }, [groupTemplates]);
 
   // Sync planning notes completion & deletion with main tasks
   useEffect(() => {
@@ -1175,6 +1216,147 @@ export default function DailyScheduler({
     showToast(`Replicated ${currentTasks.length} tasks to tomorrow!`);
   };
 
+  const resetGroupTemplateDraft = (block: TimeBlock = 'Morning') => {
+    setGroupTemplateDraft({
+      name: '',
+      subtaskTitles: [''],
+      defaultTimeBlock: block,
+      defaultScheduledTime: '',
+    });
+    setEditingGroupTemplate(null);
+  };
+
+  const openGroupTemplatesModal = (defaultBlock?: TimeBlock) => {
+    resetGroupTemplateDraft(defaultBlock ?? visibleBlock);
+    setShowGroupTemplatesModal(true);
+  };
+
+  const insertGroupFromTemplate = (template: TaskGroupTemplate, block: TimeBlock) => {
+    const titles = template.subtaskTitles.filter(t => t.trim().length > 0);
+    if (titles.length === 0) {
+      showToast('Template has no sub-tasks');
+      return;
+    }
+
+    const newTask: SchedulerTask = {
+      id: 'task_' + Math.random().toString(36).substring(2, 9),
+      date: selectedDate,
+      timeBlock: block,
+      title: template.name.trim() || 'Group',
+      scheduledTime: template.defaultScheduledTime?.trim() || undefined,
+      completed: false,
+      type: 'group',
+      subtasks: titles.map(title => ({
+        id: 'sub_' + Math.random().toString(36).substring(2, 9),
+        title: title.trim(),
+        completed: false,
+      })),
+      createdAt: new Date().toISOString(),
+    };
+
+    setTasks(prev => [...prev, newTask]);
+    setExpandedTaskIds(prev => ({ ...prev, [newTask.id]: true }));
+    setExpandedBlocks(prev => ({ ...prev, [block]: true }));
+    setSavedGroupPickerBlock(null);
+    showToast(`Added "${newTask.title}" to ${block}`);
+  };
+
+  const saveGroupAsTemplate = (task: SchedulerTask) => {
+    const titles = (task.subtasks || []).map(s => s.title.trim()).filter(Boolean);
+    if (task.type !== 'group' || titles.length === 0) {
+      showToast('Group needs at least one sub-task');
+      return;
+    }
+
+    const template: TaskGroupTemplate = {
+      id: 'tpl_' + Math.random().toString(36).substring(2, 9),
+      name: task.title.trim() || 'Untitled Group',
+      subtaskTitles: titles,
+      defaultTimeBlock: task.timeBlock,
+      defaultScheduledTime: task.scheduledTime,
+      createdAt: new Date().toISOString(),
+    };
+
+    setGroupTemplates(prev => [...prev, template]);
+    showToast(`Saved "${template.name}" for reuse`);
+  };
+
+  const saveInlineGroupAsTemplate = () => {
+    const titles = inlineTaskInput.initialSubtasks.map(s => s.trim()).filter(Boolean);
+    const name = inlineTaskInput.text.trim() || 'Untitled Group';
+    if (titles.length === 0) {
+      showToast('Add at least one sub-task first');
+      return;
+    }
+
+    const template: TaskGroupTemplate = {
+      id: 'tpl_' + Math.random().toString(36).substring(2, 9),
+      name,
+      subtaskTitles: titles,
+      defaultTimeBlock: inlineTaskInput.block ?? visibleBlock,
+      defaultScheduledTime: inlineTaskInput.scheduledTime.trim() || undefined,
+      createdAt: new Date().toISOString(),
+    };
+
+    setGroupTemplates(prev => [...prev, template]);
+    showToast(`Saved "${template.name}" for reuse`);
+  };
+
+  const handleSaveGroupTemplateDraft = () => {
+    const name = groupTemplateDraft.name.trim();
+    const titles = groupTemplateDraft.subtaskTitles.map(s => s.trim()).filter(Boolean);
+    if (!name) {
+      showToast('Enter a group name');
+      return;
+    }
+    if (titles.length === 0) {
+      showToast('Add at least one sub-task');
+      return;
+    }
+
+    const payload = {
+      name,
+      subtaskTitles: titles,
+      defaultTimeBlock: groupTemplateDraft.defaultTimeBlock,
+      defaultScheduledTime: groupTemplateDraft.defaultScheduledTime.trim() || undefined,
+    };
+
+    if (editingGroupTemplate) {
+      setGroupTemplates(prev =>
+        prev.map(t => (t.id === editingGroupTemplate.id ? { ...t, ...payload } : t))
+      );
+      showToast(`Updated "${name}"`);
+    } else {
+      setGroupTemplates(prev => [
+        ...prev,
+        {
+          id: 'tpl_' + Math.random().toString(36).substring(2, 9),
+          ...payload,
+          createdAt: new Date().toISOString(),
+        },
+      ]);
+      showToast(`Saved "${name}"`);
+    }
+
+    resetGroupTemplateDraft(groupTemplateDraft.defaultTimeBlock);
+  };
+
+  const handleEditGroupTemplate = (template: TaskGroupTemplate) => {
+    setEditingGroupTemplate(template);
+    setGroupTemplateDraft({
+      name: template.name,
+      subtaskTitles: template.subtaskTitles.length > 0 ? [...template.subtaskTitles] : [''],
+      defaultTimeBlock: template.defaultTimeBlock ?? 'Morning',
+      defaultScheduledTime: template.defaultScheduledTime ?? '',
+    });
+  };
+
+  const handleDeleteGroupTemplate = (templateId: string) => {
+    setGroupTemplates(prev => prev.filter(t => t.id !== templateId));
+    if (editingGroupTemplate?.id === templateId) resetGroupTemplateDraft();
+    showToast('Saved group removed');
+  };
+
   // ── Drag-and-Drop Handlers ────────────────────────────────────────────────
 
   const handleDragStart = (e: React.DragEvent, taskId: string) => {
@@ -1493,6 +1675,227 @@ export default function DailyScheduler({
         )}
       </AnimatePresence>
 
+      {/* ── Saved Group Templates Modal ───────────────────────────────────── */}
+      <AnimatePresence>
+        {showGroupTemplatesModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/40 backdrop-blur-[2px]"
+            onClick={() => setShowGroupTemplatesModal(false)}
+          >
+            <motion.div
+              initial={{ opacity: 0, y: 24, scale: 0.98 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 24, scale: 0.98 }}
+              onClick={e => e.stopPropagation()}
+              className="w-full sm:max-w-lg max-h-[88vh] overflow-hidden bg-white rounded-t-3xl sm:rounded-2xl border border-neutral-200 shadow-2xl flex flex-col"
+            >
+              <div className="flex items-center justify-between gap-3 px-4 sm:px-5 py-4 border-b border-neutral-100">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <div className="w-9 h-9 rounded-xl bg-black text-white flex items-center justify-center shrink-0">
+                    <ListTree className="w-4 h-4" />
+                  </div>
+                  <div className="min-w-0">
+                    <h2 className="text-sm font-black text-black tracking-tight">Saved Task Groups</h2>
+                    <p className="text-[10px] font-medium text-neutral-400 truncate">
+                      Save once · add to any day in one tap
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowGroupTemplatesModal(false)}
+                  className="w-8 h-8 rounded-xl text-neutral-400 hover:text-black hover:bg-neutral-100 flex items-center justify-center transition cursor-pointer shrink-0"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div className="overflow-y-auto flex-1 px-4 sm:px-5 py-4 space-y-4">
+                {/* Create / edit form */}
+                <div className="bg-neutral-50 border border-neutral-200 rounded-2xl p-3.5 space-y-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-[11px] font-extrabold text-neutral-600 uppercase tracking-wider">
+                      {editingGroupTemplate ? 'Edit Group' : 'New Saved Group'}
+                    </span>
+                    {editingGroupTemplate && (
+                      <button
+                        type="button"
+                        onClick={() => resetGroupTemplateDraft(groupTemplateDraft.defaultTimeBlock)}
+                        className="text-[10px] font-bold text-neutral-500 hover:text-black cursor-pointer"
+                      >
+                        Cancel edit
+                      </button>
+                    )}
+                  </div>
+                  <input
+                    type="text"
+                    placeholder="Group name (e.g. Morning Rituals)"
+                    value={groupTemplateDraft.name}
+                    onChange={e => setGroupTemplateDraft(prev => ({ ...prev, name: e.target.value }))}
+                    className="w-full bg-white border border-neutral-300 rounded-xl px-3 py-2 text-xs font-bold text-black placeholder:text-neutral-400 focus:outline-none focus:border-black"
+                  />
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-[10px] font-bold text-neutral-400 uppercase tracking-wider">Default block:</span>
+                    {(['Morning', 'Afternoon', 'Evening', 'Night'] as TimeBlock[]).map(block => (
+                      <button
+                        key={block}
+                        type="button"
+                        onClick={() => setGroupTemplateDraft(prev => ({ ...prev, defaultTimeBlock: block }))}
+                        className={`text-[10px] font-bold px-2 py-0.5 rounded-lg border transition cursor-pointer ${
+                          groupTemplateDraft.defaultTimeBlock === block
+                            ? 'bg-black text-white border-black'
+                            : 'bg-white text-neutral-700 border-neutral-200 hover:border-black'
+                        }`}
+                      >
+                        {block}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="space-y-2">
+                    <span className="text-[10px] font-bold text-neutral-500 uppercase tracking-wider block">Sub-tasks:</span>
+                    <div className="flex flex-wrap gap-1.5">
+                      {groupTemplateDraft.subtaskTitles.map((stText, idx) => (
+                        <div key={idx} className="flex items-center gap-1 bg-white border border-neutral-200 rounded-lg px-2 py-0.5">
+                          <input
+                            type="text"
+                            placeholder={`Sub-task ${idx + 1}`}
+                            value={stText}
+                            onChange={e => {
+                              const val = e.target.value;
+                              setGroupTemplateDraft(prev => {
+                                const updated = [...prev.subtaskTitles];
+                                updated[idx] = val;
+                                return { ...prev, subtaskTitles: updated };
+                              });
+                            }}
+                            className="w-28 bg-transparent text-xs text-black placeholder:text-neutral-400 focus:outline-none font-bold"
+                          />
+                          {groupTemplateDraft.subtaskTitles.length > 1 && (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setGroupTemplateDraft(prev => ({
+                                  ...prev,
+                                  subtaskTitles: prev.subtaskTitles.filter((_, i) => i !== idx),
+                                }))
+                              }
+                              className="text-neutral-400 hover:text-red-500 p-0.5 cursor-pointer"
+                            >
+                              <X className="w-3 h-3" />
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setGroupTemplateDraft(prev => ({ ...prev, subtaskTitles: [...prev.subtaskTitles, ''] }))
+                        }
+                        className="text-xs font-bold text-black bg-neutral-100 border border-neutral-300 hover:bg-neutral-200 px-2 py-0.5 rounded-lg transition cursor-pointer"
+                      >
+                        + Sub-task
+                      </button>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleSaveGroupTemplateDraft}
+                    className="w-full h-9 bg-black hover:bg-neutral-800 text-white text-xs font-black rounded-xl transition cursor-pointer active:scale-[0.98]"
+                  >
+                    {editingGroupTemplate ? 'Update Saved Group' : 'Save Group Template'}
+                  </button>
+                </div>
+
+                {/* Saved list */}
+                <div className="space-y-2">
+                  <span className="text-[11px] font-extrabold text-neutral-600 uppercase tracking-wider block">
+                    Your Groups ({groupTemplates.length})
+                  </span>
+                  {groupTemplates.length === 0 ? (
+                    <p className="text-xs text-neutral-400 font-medium py-4 text-center border border-dashed border-neutral-200 rounded-2xl">
+                      No saved groups yet. Create one above or save from an existing group task.
+                    </p>
+                  ) : (
+                    groupTemplates.map(template => (
+                      <div
+                        key={template.id}
+                        className="bg-white border border-neutral-200 rounded-2xl p-3 space-y-2.5 hover:border-neutral-300 transition"
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <p className="text-sm font-black text-black truncate">{template.name}</p>
+                            <p className="text-[10px] font-medium text-neutral-500 mt-0.5">
+                              {template.subtaskTitles.length} sub-tasks
+                              {template.defaultTimeBlock ? ` · default ${template.defaultTimeBlock}` : ''}
+                            </p>
+                          </div>
+                          <div className="flex items-center gap-1 shrink-0">
+                            <button
+                              type="button"
+                              onClick={() => handleEditGroupTemplate(template)}
+                              className="w-7 h-7 rounded-lg text-neutral-400 hover:text-black hover:bg-neutral-100 flex items-center justify-center cursor-pointer"
+                              title="Edit"
+                            >
+                              <Pencil className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteGroupTemplate(template.id)}
+                              className="w-7 h-7 rounded-lg text-neutral-300 hover:text-red-500 hover:bg-red-50 flex items-center justify-center cursor-pointer"
+                              title="Delete"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </div>
+                        <div className="flex flex-wrap gap-1">
+                          {template.subtaskTitles.slice(0, 4).map((st, i) => (
+                            <span key={i} className="text-[10px] font-bold text-neutral-600 bg-neutral-100 px-2 py-0.5 rounded-md">
+                              {st}
+                            </span>
+                          ))}
+                          {template.subtaskTitles.length > 4 && (
+                            <span className="text-[10px] font-bold text-neutral-400 px-1 py-0.5">
+                              +{template.subtaskTitles.length - 4} more
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex flex-wrap gap-1.5 pt-1 border-t border-neutral-100">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              insertGroupFromTemplate(template, template.defaultTimeBlock ?? visibleBlock)
+                            }
+                            className="flex-1 min-w-[120px] h-8 bg-black hover:bg-neutral-800 text-white text-[10px] font-black rounded-xl transition cursor-pointer active:scale-[0.98]"
+                          >
+                            Add to {template.defaultTimeBlock ?? visibleBlock}
+                          </button>
+                          {(['Morning', 'Afternoon', 'Evening', 'Night'] as TimeBlock[])
+                            .filter(b => b !== (template.defaultTimeBlock ?? visibleBlock))
+                            .map(block => (
+                              <button
+                                key={block}
+                                type="button"
+                                onClick={() => insertGroupFromTemplate(template, block)}
+                                className="text-[10px] font-bold px-2.5 py-1 rounded-lg border border-neutral-200 bg-white text-neutral-700 hover:border-black transition cursor-pointer"
+                              >
+                                {block}
+                              </button>
+                            ))}
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* ── Grid Container ─────────────────────────────────────────────────── */}
       <div className="lg:grid lg:grid-cols-12 lg:gap-6 items-start space-y-6 lg:space-y-0">
         {/* ── Left Column: Scheduler & Trackers ────────────────────────────── */}
@@ -1538,6 +1941,15 @@ export default function DailyScheduler({
                 <span>Today</span>
               </button>
             )}
+            <button
+              type="button"
+              onClick={() => openGroupTemplatesModal()}
+              title="Manage saved task groups"
+              className="h-9 flex items-center gap-2 px-3 bg-white hover:bg-neutral-50 text-black border border-neutral-200 text-xs font-bold rounded-xl transition shadow-xs active:scale-95 cursor-pointer"
+            >
+              <ListTree className="w-3.5 h-3.5 text-neutral-500" />
+              <span>Saved Groups{groupTemplates.length > 0 ? ` (${groupTemplates.length})` : ''}</span>
+            </button>
             <button
               type="button"
               onClick={handleReplicateToTomorrow}
@@ -2027,6 +2439,59 @@ export default function DailyScheduler({
                     </button>
                   )}
 
+                  {/* Insert saved group */}
+                  <div className="relative">
+                    <button
+                      type="button"
+                      onClick={e => {
+                        e.stopPropagation();
+                        if (!isExpanded) setExpandedBlocks(prev => ({ ...prev, [block]: true }));
+                        if (groupTemplates.length === 0) {
+                          openGroupTemplatesModal(block);
+                          return;
+                        }
+                        setSavedGroupPickerBlock(prev => (prev === block ? null : block));
+                      }}
+                      title={groupTemplates.length > 0 ? 'Add saved group to this block' : 'Create a saved group'}
+                      className="w-8 h-8 rounded-xl bg-white text-black border border-neutral-300 flex items-center justify-center hover:border-black active:scale-95 transition cursor-pointer"
+                    >
+                      <ListTree className="w-4 h-4 stroke-[2.5px]" />
+                    </button>
+                    {savedGroupPickerBlock === block && groupTemplates.length > 0 && (
+                      <div
+                        className="absolute right-0 top-full mt-1.5 z-30 w-56 max-h-64 overflow-y-auto bg-white border border-neutral-200 rounded-xl shadow-xl py-1"
+                        onClick={e => e.stopPropagation()}
+                      >
+                        <p className="px-3 py-1.5 text-[9px] font-black text-neutral-400 uppercase tracking-wider border-b border-neutral-100">
+                          Add to {meta.label}
+                        </p>
+                        {groupTemplates.map(template => (
+                          <button
+                            key={template.id}
+                            type="button"
+                            onClick={() => insertGroupFromTemplate(template, block)}
+                            className="w-full text-left px-3 py-2 hover:bg-neutral-50 transition cursor-pointer"
+                          >
+                            <p className="text-xs font-black text-black truncate">{template.name}</p>
+                            <p className="text-[10px] text-neutral-500 font-medium">
+                              {template.subtaskTitles.length} sub-tasks
+                            </p>
+                          </button>
+                        ))}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSavedGroupPickerBlock(null);
+                            openGroupTemplatesModal(block);
+                          }}
+                          className="w-full text-left px-3 py-2 text-[10px] font-bold text-black border-t border-neutral-100 hover:bg-neutral-50 cursor-pointer"
+                        >
+                          + Manage saved groups
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
                   {/* Add task button */}
                   <button
                     type="button"
@@ -2321,7 +2786,41 @@ export default function DailyScheduler({
                           {/* Group subtasks config */}
                           {inlineTaskInput.taskType === 'group' && (
                             <div className="space-y-2 pt-2 border-t border-neutral-200">
-                              <span className="text-[10px] font-bold text-neutral-500 uppercase tracking-wider block">Sub-tasks:</span>
+                              <div className="flex items-center justify-between gap-2 flex-wrap">
+                                <span className="text-[10px] font-bold text-neutral-500 uppercase tracking-wider">Sub-tasks:</span>
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  {groupTemplates.length > 0 && (
+                                    <select
+                                      defaultValue=""
+                                      onChange={e => {
+                                        const tpl = groupTemplates.find(t => t.id === e.target.value);
+                                        if (!tpl) return;
+                                        setInlineTaskInput(prev => ({
+                                          ...prev,
+                                          text: tpl.name,
+                                          scheduledTime: tpl.defaultScheduledTime ?? prev.scheduledTime,
+                                          initialSubtasks: tpl.subtaskTitles.length > 0 ? [...tpl.subtaskTitles] : [''],
+                                        }));
+                                        e.target.value = '';
+                                      }}
+                                      className="text-[10px] font-bold bg-white border border-neutral-300 rounded-lg px-2 py-1 text-black cursor-pointer focus:outline-none focus:border-black"
+                                    >
+                                      <option value="">Load saved group…</option>
+                                      {groupTemplates.map(t => (
+                                        <option key={t.id} value={t.id}>{t.name}</option>
+                                      ))}
+                                    </select>
+                                  )}
+                                  <button
+                                    type="button"
+                                    onClick={saveInlineGroupAsTemplate}
+                                    className="text-[10px] font-bold text-black bg-amber-50 border border-amber-200 hover:bg-amber-100 px-2 py-1 rounded-lg transition cursor-pointer flex items-center gap-1"
+                                  >
+                                    <Star className="w-3 h-3" />
+                                    Save as template
+                                  </button>
+                                </div>
+                              </div>
                               <div className="flex flex-wrap items-center gap-1.5">
                                 {inlineTaskInput.initialSubtasks.map((stText, idx) => (
                                   <div key={idx} className="flex items-center gap-1 bg-white border border-neutral-200 rounded-lg px-2 py-0.5 shadow-2xs">
@@ -2519,6 +3018,17 @@ export default function DailyScheduler({
                                         <ChevronDown className="w-3.5 h-3.5" />
                                       </button>
                                     </div>
+
+                                    {task.type === 'group' && (
+                                      <button
+                                        type="button"
+                                        onClick={() => saveGroupAsTemplate(task)}
+                                        className="text-neutral-300 hover:text-amber-600 p-1 sm:p-0.5 hover:bg-amber-50 rounded transition cursor-pointer touch-manipulation"
+                                        title="Save as reusable group"
+                                      >
+                                        <Star className="w-3.5 h-3.5" />
+                                      </button>
+                                    )}
 
                                     <button
                                       type="button"
